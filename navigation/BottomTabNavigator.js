@@ -3,8 +3,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { StyleSheet } from "react-native";
 import Icon from "react-native-vector-icons/FontAwesome";
-import { createStackNavigator } from "@react-navigation/stack";
-
+import { createStackNavigator } from "@react-navigation/stack"
 import HomeScreen from "../screens/HomeScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import NewsScreen from "../screens/NewsScreen";
