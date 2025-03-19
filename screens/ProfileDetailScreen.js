@@ -44,7 +44,7 @@ const ProfileDetailScreen = () => {
       {/* Thông tin người dùng */}
       <View style={styles.infoContainer}>
         <Text style={styles.name}>Hoàng Huy Tới</Text>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate("UpdateBioScreen")}>
           <Text style={styles.updateInfo}>✏️ Cập nhật giới thiệu bản thân</Text>
         </TouchableOpacity>
       </View>

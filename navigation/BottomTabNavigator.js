@@ -18,6 +18,7 @@ import EditProfileScreen from "../screens/EditProfileScreen";
 import EditProfileFormScreen from "../screens/EditProfileFormScreen";
 import ChangeAvatarScreen from "../screens/ChangeAvatarScreen";
 import ChangeCoverScreen from "../screens/ChangeCoverScreen";
+import UpdateBioScreen from "../screens/UpdateBioScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -35,6 +36,7 @@ const ProfileStack = () => (
     <Stack.Screen name="EditProfileFormScreen" component={EditProfileFormScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="ChangeAvatarScreen" component={ChangeAvatarScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="ChangeCoverScreen" component={ChangeCoverScreen} options={{ headerShown: false }}/>
+    <Stack.Screen name="UpdateBioScreen" component={UpdateBioScreen} options={{ headerShown: false }}/>
   </Stack.Navigator>
 );
 

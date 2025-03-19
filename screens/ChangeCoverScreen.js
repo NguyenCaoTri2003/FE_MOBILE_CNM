@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet, Modal } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
+import Icon from "react-native-vector-icons/FontAwesome";
 
 const ChangeCoverScreen = () => {
   const [avatar, setAvatar] = useState(null);
@@ -39,8 +40,15 @@ const ChangeCoverScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Chọn ảnh bìa</Text>
+      {/* Header với nút Go Back */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-left" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Chọn ảnh bìa</Text>
+      </View>
 
+      {/* Chọn ảnh bìa */}
       <TouchableOpacity style={styles.imageContainer} onPress={() => setModalVisible(true)}>
         {avatar ? (
           <Image source={{ uri: avatar }} style={styles.image} />
@@ -49,6 +57,7 @@ const ChangeCoverScreen = () => {
         )}
       </TouchableOpacity>
 
+      {/* Nút Lưu ảnh */}
       <TouchableOpacity style={styles.saveButton} onPress={() => navigation.goBack()}>
         <Text style={styles.saveButtonText}>Lưu ảnh</Text>
       </TouchableOpacity>
@@ -85,16 +94,26 @@ const ChangeCoverScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
     backgroundColor: "#fff",
   },
-  title: {
-    fontSize: 20,
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#007AFF",
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+  },
+  backButton: {
+    padding: 10,
+  },
+  headerTitle: {
+    fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 20,
+    marginLeft: 10,
+    color: "#fff",
   },
   imageContainer: {
+    marginTop: 40,
     width: 150,
     height: 150,
     borderRadius: 75,
@@ -103,6 +122,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    alignSelf: "center",
   },
   image: {
     width: "100%",
@@ -112,11 +132,13 @@ const styles = StyleSheet.create({
     color: "#aaa",
   },
   saveButton: {
-    marginTop: 20,
+    marginTop: 30,
     backgroundColor: "#007AFF",
     paddingVertical: 10,
     paddingHorizontal: 30,
     borderRadius: 5,
+    alignItems: "center",
+    alignSelf: "center",
   },
   saveButtonText: {
     color: "#fff",

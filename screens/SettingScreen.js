@@ -28,7 +28,7 @@ const SettingScreen = () => {
             <TouchableOpacity style={styles.item} onPress={() => navigation.navigate("ChangeCoverScreen")}>
                 <Text style={styles.itemText}>Đổi ảnh bìa</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => navigation.navigate("UpdateBioScreen")}>
                 <Text style={styles.itemText}>Cập nhật giới thiệu bản thân</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.item}>

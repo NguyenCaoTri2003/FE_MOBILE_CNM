@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet, Modal } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
+import Icon from "react-native-vector-icons/FontAwesome";
 
 const ChangeAvatarScreen = () => {
   const [avatar, setAvatar] = useState(null);
@@ -37,10 +38,26 @@ const ChangeAvatarScreen = () => {
     }
   };
 
+  // Xử lý lưu ảnh
+  const handleSave = () => {
+    if (!avatar) {
+      alert("Bạn chưa chọn ảnh đại diện!");
+      return;
+    }
+    navigation.goBack();
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Chọn ảnh đại diện</Text>
+      {/* Header với nút Go Back */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="arrow-left" size={24} color="#333" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Cập nhật ảnh đại diện</Text>
+      </View>
 
+      {/* Chọn ảnh đại diện */}
       <TouchableOpacity style={styles.imageContainer} onPress={() => setModalVisible(true)}>
         {avatar ? (
           <Image source={{ uri: avatar }} style={styles.image} />
@@ -49,7 +66,8 @@ const ChangeAvatarScreen = () => {
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.saveButton} onPress={() => navigation.goBack()}>
+      {/* Nút Lưu ảnh */}
+      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
         <Text style={styles.saveButtonText}>Lưu ảnh</Text>
       </TouchableOpacity>
 
@@ -62,7 +80,7 @@ const ChangeAvatarScreen = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Ảnh đại diện</Text>
+            <Text style={styles.modalTitle}>Chọn ảnh đại diện</Text>
             <TouchableOpacity style={styles.modalOption} onPress={takePhoto}>
               <Text>📷 Chụp ảnh mới</Text>
             </TouchableOpacity>
@@ -85,16 +103,26 @@ const ChangeAvatarScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: "#F8F9FA",
   },
-  title: {
-    fontSize: 20,
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#007AFF",
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+  },
+  backButton: {
+    padding: 10,
+  },
+  headerTitle: {
+    fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 20,
+    marginLeft: 10,
+    color: "#fff",
   },
   imageContainer: {
+    marginTop: 40,
     width: 150,
     height: 150,
     borderRadius: 75,
@@ -103,6 +131,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    alignSelf: "center",
   },
   image: {
     width: "100%",
@@ -112,11 +141,70 @@ const styles = StyleSheet.create({
     color: "#aaa",
   },
   saveButton: {
-    marginTop: 20,
+    marginTop: 30,
     backgroundColor: "#007AFF",
     paddingVertical: 10,
     paddingHorizontal: 30,
     borderRadius: 5,
+    alignItems: "center",
+    alignSelf: "center",
+  },
+  saveButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    padding: 20,
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 15,
+  },
+  modalOption: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
+  },
+  modalCancel: {
+    paddingVertical: 10,
+    alignItems: "center",
+  },imageContainer: {
+    marginTop: 40,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    alignSelf: "center",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  placeholder: {
+    color: "#aaa",
+  },
+  saveButton: {
+    marginTop: 30,
+    backgroundColor: "#007AFF",
+    paddingVertical: 10,
+    paddingHorizontal: 30,
+    borderRadius: 5,
+    alignItems: "center",
+    alignSelf: "center",
   },
   saveButtonText: {
     color: "#fff",
