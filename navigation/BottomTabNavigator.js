@@ -24,7 +24,11 @@ const Stack = createStackNavigator();
 
 const ProfileStack = () => (
   <Stack.Navigator>
-    <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
+    <Stack.Screen 
+      name="Profile" 
+      component={ProfileScreen} 
+      options={{ header: () => <ProfileHeader /> }} 
+    />
     <Stack.Screen name="ProfileDetail" component={ProfileDetailScreen} options={{ headerShown: false }} />
     <Stack.Screen name="SettingScreen" component={SettingScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} options={{ headerShown: false }}/>
@@ -33,6 +37,7 @@ const ProfileStack = () => (
     <Stack.Screen name="ChangeCoverScreen" component={ChangeCoverScreen} options={{ headerShown: false }}/>
   </Stack.Navigator>
 );
+
 
 const BottomTabNavigator = () => {
   return (
