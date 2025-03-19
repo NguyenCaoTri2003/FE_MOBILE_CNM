@@ -3,6 +3,8 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { StyleSheet } from "react-native";
 import Icon from "react-native-vector-icons/FontAwesome";
+import { createStackNavigator } from "@react-navigation/stack";
+
 import HomeScreen from "../screens/HomeScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import NewsScreen from "../screens/NewsScreen";
@@ -11,8 +13,19 @@ import HomeScreenHeader from "../components/HomeScreenHeader";
 import ContactsHeader from "../components/ContactsHeader";
 import NewsHeader from "../components/NewsHeader";
 import ProfileHeader from "../components/ProfileHeader";
+import ProfileDetailScreen from "../screens/ProfileDetailScreen";
+import SettingScreen from "../screens/SettingScreen";
 
 const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
+
+const ProfileStack = () => (
+  <Stack.Navigator>
+    <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
+    <Stack.Screen name="ProfileDetail" component={ProfileDetailScreen} options={{ headerShown: false }} />
+    <Stack.Screen name="SettingScreen" component={SettingScreen} options={{ headerShown: false }}/>
+  </Stack.Navigator>
+);
 
 const BottomTabNavigator = () => {
   return (
@@ -55,8 +68,8 @@ const BottomTabNavigator = () => {
         />
         <Tab.Screen
           name="Cá nhân"
-          component={ProfileScreen}
-          options={{ header: () => <ProfileHeader /> }}
+          component={ProfileStack} 
+          options={{ headerShown: false }} 
         />
       </Tab.Navigator>
     </NavigationContainer>

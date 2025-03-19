@@ -2,8 +2,11 @@ import React from "react";
 import { View, Text, Image, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import Icon from "react-native-vector-icons/FontAwesome";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import { useNavigation } from "@react-navigation/native";
 
 const ProfileScreen = () => {
+  const navigation = useNavigation();
+
   return (
     <ScrollView style={styles.container}>
       {/* Header */}
@@ -12,10 +15,13 @@ const ProfileScreen = () => {
           source={{ uri: "https://i.postimg.cc/RCj7hBPq/account.png" }} 
           style={styles.avatar} 
         />
-        <View style={styles.profileInfo}>
+        <TouchableOpacity 
+          style={styles.profileInfo} 
+          onPress={() => navigation.navigate("ProfileDetail")}
+        >
           <Text style={styles.profileName}>Hoàng Huy Tới</Text>
           <Text style={styles.profileLink}>Xem trang cá nhân</Text>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity>
           <Ionicons name="person-add-outline" size={24} color="#0084FF" />
         </TouchableOpacity>
