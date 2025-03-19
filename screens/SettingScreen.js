@@ -19,21 +19,21 @@ const SettingScreen = () => {
       {/* Nội dung cài đặt */}
       <ScrollView>
         <View style={styles.section}>
-          <TouchableOpacity style={styles.item}>
-            <Text style={styles.itemText}>Thông tin</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.item}>
-            <Text style={styles.itemText}>Đổi ảnh đại diện</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.item}>
-            <Text style={styles.itemText}>Đổi ảnh bìa</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.item}>
-            <Text style={styles.itemText}>Cập nhật giới thiệu bản thân</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.item}>
-            <Text style={styles.itemText}>Ví của tôi</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.item} onPress={() => navigation.navigate("EditProfileScreen")}>
+                <Text style={styles.itemText}>Thông tin</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.item}>
+                <Text style={styles.itemText}>Đổi ảnh đại diện</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.item}>
+                <Text style={styles.itemText}>Đổi ảnh bìa</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.item}>
+                <Text style={styles.itemText}>Cập nhật giới thiệu bản thân</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.item}>
+                <Text style={styles.itemText}>Ví của tôi</Text>
+            </TouchableOpacity>
         </View>
 
         {/* Cài đặt */}
