@@ -22,10 +22,10 @@ const SettingScreen = () => {
             <TouchableOpacity style={styles.item} onPress={() => navigation.navigate("EditProfileScreen")}>
                 <Text style={styles.itemText}>Thông tin</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => navigation.navigate("ChangeAvatarScreen")}>
                 <Text style={styles.itemText}>Đổi ảnh đại diện</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => navigation.navigate("ChangeCoverScreen")}>
                 <Text style={styles.itemText}>Đổi ảnh bìa</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.item}>

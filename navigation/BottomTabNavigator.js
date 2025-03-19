@@ -16,6 +16,9 @@ import ProfileHeader from "../components/ProfileHeader";
 import ProfileDetailScreen from "../screens/ProfileDetailScreen";
 import SettingScreen from "../screens/SettingScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
+import EditProfileFormScreen from "../screens/EditProfileFormScreen";
+import ChangeAvatarScreen from "../screens/ChangeAvatarScreen";
+import ChangeCoverScreen from "../screens/ChangeCoverScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -26,6 +29,9 @@ const ProfileStack = () => (
     <Stack.Screen name="ProfileDetail" component={ProfileDetailScreen} options={{ headerShown: false }} />
     <Stack.Screen name="SettingScreen" component={SettingScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} options={{ headerShown: false }}/>
+    <Stack.Screen name="EditProfileFormScreen" component={EditProfileFormScreen} options={{ headerShown: false }}/>
+    <Stack.Screen name="ChangeAvatarScreen" component={ChangeAvatarScreen} options={{ headerShown: false }}/>
+    <Stack.Screen name="ChangeCoverScreen" component={ChangeCoverScreen} options={{ headerShown: false }}/>
   </Stack.Navigator>
 );
 
