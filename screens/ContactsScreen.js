@@ -51,6 +51,7 @@ const ContactsScreen = () => {
         </TouchableOpacity>
       )}
     />
+    
 
       {/* Bộ lọc danh sách */}
       <View style={styles.filterContainer}>
