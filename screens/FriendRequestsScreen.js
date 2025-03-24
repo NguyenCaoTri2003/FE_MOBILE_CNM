@@ -7,8 +7,9 @@ const FRIEND_REQUESTS = [
   { id: "2", name: "Nguyễn Văn Tấn", avatar: "https://i.postimg.cc/RCj7hBPq/account.png" },
 ];
 
-const FriendRequestsScreen = () => {
+const FriendRequestsScreen = ({ navigation }) => {
   const [requests, setRequests] = useState(FRIEND_REQUESTS);
+  const [selectedTab, setSelectedTab] = useState("received");
 
   const handleAccept = (id) => {
     setRequests(requests.filter((item) => item.id !== id));
@@ -29,8 +30,12 @@ const FriendRequestsScreen = () => {
 
       {/* Tabs */}
       <View style={styles.tabs}>
-        <Text style={[styles.tabText, styles.activeTab]}>Đã nhận 7</Text>
-        <Text style={styles.tabText}>Đã gửi</Text>
+        <TouchableOpacity onPress={() => setSelectedTab("received")}>
+          <Text style={[styles.tabText, selectedTab === "received" && styles.activeTab]}>Đã nhận 7</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate("SentRequestsScreen")}>
+          <Text style={[styles.tabText, selectedTab === "sent" && styles.activeTab]}>Đã gửi</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Friend Requests List */}
@@ -53,20 +58,12 @@ const FriendRequestsScreen = () => {
           </View>
         )}
       />
-
-      {/* Xem thêm */}
-      <TouchableOpacity style={styles.loadMore}>
-        <Text style={styles.loadMoreText}>XEM THÊM</Text>
-        <Ionicons name="chevron-down" size={16} color="#333" />
-      </TouchableOpacity>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-
-  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -76,8 +73,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   headerTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
-
-  // Tabs
   tabs: {
     flexDirection: "row",
     paddingVertical: 10,
@@ -97,8 +92,6 @@ const styles = StyleSheet.create({
     borderBottomColor: "#0084FF",
     paddingBottom: 5,
   },
-
-  // Friend Request Item
   requestItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -111,8 +104,6 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   name: { fontSize: 16, fontWeight: "bold" },
   subText: { color: "#888" },
-
-  // Buttons
   rejectBtn: {
     backgroundColor: "#eee",
     paddingVertical: 6,
@@ -128,15 +119,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   acceptText: { color: "#fff", fontWeight: "bold" },
-
-  // Xem thêm
-  loadMore: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 15,
-  },
-  loadMoreText: { fontSize: 14, color: "#333", marginRight: 5 },
 });
 
 export default FriendRequestsScreen;
