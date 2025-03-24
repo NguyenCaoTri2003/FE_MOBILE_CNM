@@ -10,10 +10,7 @@ const ContactsHeader = () => {
         <TextInput placeholder="Tìm kiếm" placeholderTextColor="#888" style={styles.searchInput} />
       </View>
       <TouchableOpacity style={styles.iconButton}>
-        <Icon name="qrcode" size={24} color="white" />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.iconButton}>
-        <Icon name="plus" size={24} color="white" />
+        <Icon name="user-plus" size={24} color="white" />
       </TouchableOpacity>
     </View>
   );

@@ -8,7 +8,7 @@ import HomeScreen from "../screens/HomeScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import NewsScreen from "../screens/NewsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
-import HomeScreenHeader from "../components/HomeScreenHeader";
+import HomeScreenHeader from "../components/HomeHeader";
 import ContactsHeader from "../components/ContactsHeader";
 import NewsHeader from "../components/NewsHeader";
 import ProfileHeader from "../components/ProfileHeader";
@@ -19,17 +19,14 @@ import EditProfileFormScreen from "../screens/EditProfileFormScreen";
 import ChangeAvatarScreen from "../screens/ChangeAvatarScreen";
 import ChangeCoverScreen from "../screens/ChangeCoverScreen";
 import UpdateBioScreen from "../screens/UpdateBioScreen";
+import FriendRequestsScreen from "../screens/FriendRequestsScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 const ProfileStack = () => (
   <Stack.Navigator>
-    <Stack.Screen 
-      name="Profile" 
-      component={ProfileScreen} 
-      options={{ header: () => <ProfileHeader /> }} 
-    />
+    <Stack.Screen name="Profile" component={ProfileScreen} options={{ header: () => <ProfileHeader /> }} />
     <Stack.Screen name="ProfileDetail" component={ProfileDetailScreen} options={{ headerShown: false }} />
     <Stack.Screen name="SettingScreen" component={SettingScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} options={{ headerShown: false }}/>
@@ -37,6 +34,21 @@ const ProfileStack = () => (
     <Stack.Screen name="ChangeAvatarScreen" component={ChangeAvatarScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="ChangeCoverScreen" component={ChangeCoverScreen} options={{ headerShown: false }}/>
     <Stack.Screen name="UpdateBioScreen" component={UpdateBioScreen} options={{ headerShown: false }}/>
+  </Stack.Navigator>
+);
+
+const ContactsStack = () => (
+  <Stack.Navigator>
+    <Stack.Screen 
+      name="ContactsMain" 
+      component={ContactsScreen} 
+      options={{ header: () => <ContactsHeader /> }} 
+    />
+    <Stack.Screen 
+      name="FriendRequestsScreen" 
+      component={FriendRequestsScreen} 
+      options={{ headerShown: false }} 
+    />
   </Stack.Navigator>
 );
 
@@ -72,8 +84,8 @@ const BottomTabNavigator = () => {
         />
         <Tab.Screen
           name="Danh bạ"
-          component={ContactsScreen}
-          options={{ header: () => <ContactsHeader /> }}
+          component={ContactsStack}
+          options={{ headerShown: false }}
         />
         <Tab.Screen
           name="Nhật ký"
