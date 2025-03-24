@@ -20,6 +20,7 @@ import ChangeAvatarScreen from "../screens/ChangeAvatarScreen";
 import ChangeCoverScreen from "../screens/ChangeCoverScreen";
 import UpdateBioScreen from "../screens/UpdateBioScreen";
 import FriendRequestsScreen from "../screens/FriendRequestsScreen";
+import SentRequestsScreen from "../screens/SentRequestsScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -48,6 +49,11 @@ const ContactsStack = () => (
       name="FriendRequestsScreen" 
       component={FriendRequestsScreen} 
       options={{ headerShown: false }} 
+    />
+    <Stack.Screen
+      name="SentRequestsScreen"
+      component={SentRequestsScreen}
+      options={{ headerShown: false }}
     />
   </Stack.Navigator>
 );
