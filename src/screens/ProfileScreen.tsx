@@ -152,6 +152,14 @@ const ProfileScreen = () => {
     },
     {
       id: '8',
+      title: 'Đổi mật khẩu',
+      subtitle: '',
+      icon: <MaterialIcons name="lock-outline" size={24} color="#0068ff" />,
+      rightIcon: true,
+      onPress: () => navigation.navigate('ChangePassword')
+    },
+    {
+      id: '9',
       title: 'Đăng xuất',
       subtitle: '',
       icon: <MaterialIcons name="logout" size={24} color="#FF3B30" />,
@@ -199,19 +207,16 @@ const ProfileScreen = () => {
                 <Text style={styles.viewProfileText}>Xem trang cá nhân</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.profileEdit}>
-              <Ionicons name="person" size={24} color="#0068ff" />
-            </TouchableOpacity>
           </View>
 
           {/* Settings List */}
           <View style={styles.settingsList}>
-            {profileSettings.slice(0, 7).map((item, index) => (
-              <TouchableOpacity key={item.id} onPress={item.onPress}>
-                <ListItem 
+            {profileSettings.slice(0, 8).map((item, index) => (
+              <TouchableOpacity key={item.id} onPress={item.onPress} disabled={!item.onPress}>
+                <ListItem
                   containerStyle={[
-                    styles.listItem, 
-                    index !== 6 && styles.listItemBorder
+                    styles.listItem,
+                    index !== 7 && styles.listItemBorder 
                   ]}
                 >
                   <View style={styles.listItemIcon}>
@@ -236,24 +241,29 @@ const ProfileScreen = () => {
             <View style={styles.logoutSeparator} />
 
             {/* Nút đăng xuất */}
-            <TouchableOpacity 
-              onPress={handleLogout}
-              style={styles.logoutButton}
-            >
-              <LinearGradient
-                colors={['#FF3B30', '#FF6B6B']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.logoutGradient}
-              >
-                <View style={styles.logoutButtonContent}>
-                  <MaterialIcons name="logout" size={24} color="#fff" />
-                  <Text style={styles.logoutText}>
-                    Đăng xuất
-                  </Text>
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
+            {(() => {
+              const logoutItem = profileSettings[8];
+              return (
+                <TouchableOpacity
+                  onPress={logoutItem.onPress}
+                  style={styles.logoutButton}
+                >
+                  <LinearGradient
+                    colors={['#FF3B30', '#FF6B6B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.logoutGradient}
+                  >
+                    <View style={styles.logoutButtonContent}>
+                      {logoutItem.icon}
+                      <Text style={styles.logoutText}>
+                        {logoutItem.title}
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              );
+            })()}
           </View>
         </View>
       </ScrollView>
@@ -400,9 +410,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
     marginTop: 2,
-  },
-  profileEdit: {
-    padding: 5,
   },
   settingsList: {
     paddingTop: 5,

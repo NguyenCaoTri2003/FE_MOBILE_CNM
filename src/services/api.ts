@@ -183,4 +183,17 @@ export const uploadAvatar = async (uri: string) => {
       throw { message: 'Có lỗi xảy ra khi tải lên ảnh đại diện.' };
     }
   }
+};
+
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  try {
+    const response = await api.put('/change-password', {
+      currentPassword,
+      newPassword
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error('Change password error:', error.response?.data || error);
+    throw error.response?.data || error;
+  }
 }; 
