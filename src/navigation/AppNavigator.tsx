@@ -11,6 +11,7 @@ import DetailedProfileScreen from '../screens/DetailedProfileScreen';
 import DiscoveryScreen from '../screens/DiscoveryScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -24,6 +25,7 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   Discovery: undefined;
   ResetPassword: { email: string };
+  ChangePassword: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -76,6 +78,10 @@ const AppNavigator = () => {
         <Stack.Screen 
           name="ResetPassword" 
           component={ResetPasswordScreen}
+        />
+        <Stack.Screen 
+          name="ChangePassword" 
+          component={ChangePasswordScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>
