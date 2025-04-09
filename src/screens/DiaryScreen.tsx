@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Image } from 'react-native';
 import { Text, Avatar, Button } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
@@ -11,6 +11,15 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const DiaryScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('diary');
+
+  // Add useEffect to handle navigation state changes
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      setActiveTab('diary');
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -144,45 +153,56 @@ const DiaryScreen = () => {
           }}
         >
           <Ionicons 
-            name="chatbubble-outline" 
+            name={activeTab === 'messages' ? "chatbubble" : "chatbubble-outline"} 
             size={24} 
-            color="#666" 
+            color={activeTab === 'messages' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Tin nhắn</Text>
+          <Text style={[styles.navText, activeTab === 'messages' && styles.activeNavText]}>Tin nhắn</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'contacts' && styles.activeNavItem]} 
-          onPress={() => navigation.navigate('Contacts')}
+          onPress={() => {
+            setActiveTab('contacts');
+            navigation.navigate('Contacts');
+          }}
         >
           <Ionicons 
-            name="people-outline" 
+            name={activeTab === 'contacts' ? "people" : "people-outline"} 
             size={24} 
-            color="#666" 
+            color={activeTab === 'contacts' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Danh bạ</Text>
+          <Text style={[styles.navText, activeTab === 'contacts' && styles.activeNavText]}>Danh bạ</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'discover' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('discover');
+            navigation.navigate('Discovery');
+          }}
         >
           <MaterialIcons 
             name="grid-view" 
             size={24} 
-            color="#666" 
+            color={activeTab === 'discover' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Khám phá</Text>
+          <Text style={[styles.navText, activeTab === 'discover' && styles.activeNavText]}>Khám phá</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'diary' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('diary');
+            navigation.navigate('Diary');
+          }}
         >
           <FontAwesome 
             name="clock-o" 
             size={24} 
-            color="#0068ff" 
+            color={activeTab === 'diary' ? '#0068ff' : '#666'} 
           />
-          <Text style={[styles.navText, styles.activeNavText]}>Nhật ký</Text>
+          <Text style={[styles.navText, activeTab === 'diary' && styles.activeNavText]}>Nhật ký</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -195,9 +215,9 @@ const DiaryScreen = () => {
           <FontAwesome 
             name="user-o" 
             size={24} 
-            color="#666" 
+            color={activeTab === 'profile' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Cá nhân</Text>
+          <Text style={[styles.navText, activeTab === 'profile' && styles.activeNavText]}>Cá nhân</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

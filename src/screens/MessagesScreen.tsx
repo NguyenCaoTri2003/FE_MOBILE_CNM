@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Image } from 'react-native';
 import { Text, Avatar, Badge } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
@@ -82,6 +82,15 @@ const MessagesScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('messages');
 
+  // Add useEffect to handle navigation state changes
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      setActiveTab('messages');
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
   const renderConversationItem = ({ item }: { item: any }) => (
     <TouchableOpacity style={styles.conversationItem}>
       <View style={styles.avatarContainer}>
@@ -155,6 +164,10 @@ const MessagesScreen = () => {
       <View style={styles.bottomNav}>
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'messages' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('messages');
+            navigation.navigate('Messages');
+          }}
         >
           <Ionicons 
             name={activeTab === 'messages' ? "chatbubble" : "chatbubble-outline"} 
@@ -166,7 +179,10 @@ const MessagesScreen = () => {
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'contacts' && styles.activeNavItem]} 
-          onPress={() => navigation.navigate('Contacts')}
+          onPress={() => {
+            setActiveTab('contacts');
+            navigation.navigate('Contacts');
+          }}
         >
           <Ionicons 
             name={activeTab === 'contacts' ? "people" : "people-outline"} 
@@ -178,12 +194,11 @@ const MessagesScreen = () => {
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'discover' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('discover');
+            navigation.navigate('Discovery');
+          }}
         >
-          <Badge
-            status="error"
-            value="1"
-            containerStyle={styles.navBadge}
-          />
           <MaterialIcons 
             name="grid-view" 
             size={24} 
@@ -194,7 +209,10 @@ const MessagesScreen = () => {
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'diary' && styles.activeNavItem]} 
-          onPress={() => navigation.navigate('Diary')}
+          onPress={() => {
+            setActiveTab('diary');
+            navigation.navigate('Diary');
+          }}
         >
           <FontAwesome 
             name="clock-o" 
@@ -206,7 +224,10 @@ const MessagesScreen = () => {
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'profile' && styles.activeNavItem]} 
-          onPress={() => navigation.navigate('Profile')}
+          onPress={() => {
+            setActiveTab('profile');
+            navigation.navigate('Profile');
+          }}
         >
           <FontAwesome 
             name="user-o" 

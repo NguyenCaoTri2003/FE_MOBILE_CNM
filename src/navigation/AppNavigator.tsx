@@ -8,6 +8,7 @@ import ContactsScreen from '../screens/ContactsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import DiaryScreen from '../screens/DiaryScreen';
 import DetailedProfileScreen from '../screens/DetailedProfileScreen';
+import DiscoveryScreen from '../screens/DiscoveryScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -19,6 +20,7 @@ export type RootStackParamList = {
   Diary: undefined;
   Chat: { chatId: string };
   ForgotPassword: undefined;
+  Discovery: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -53,6 +55,10 @@ const AppNavigator = () => {
         <Stack.Screen 
           name="Diary" 
           component={DiaryScreen}
+        />
+        <Stack.Screen 
+          name="Discovery" 
+          component={DiscoveryScreen}
         />
         <Stack.Screen 
           name="ForgotPassword" 
