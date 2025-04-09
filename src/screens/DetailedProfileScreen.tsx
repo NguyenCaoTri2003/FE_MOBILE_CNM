@@ -11,15 +11,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  ImageBackground,
+  Dimensions,
 } from 'react-native';
 import { Text, Avatar, Button } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { getProfile, updateProfile, uploadAvatar } from '../services/api';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -37,7 +40,7 @@ const DetailedProfileScreen = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedGender, setSelectedGender] = useState('male');
+  const [selectedGender, setSelectedGender] = useState<string>('male');
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -50,7 +53,9 @@ const DetailedProfileScreen = () => {
       const response = await getProfile();
       if (response.success && response.user) {
         setUserProfile(response.user);
-        setSelectedGender(response.user.gender || 'male');
+        if (response.user.gender) {
+          setSelectedGender(response.user.gender);
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -59,6 +64,12 @@ const DetailedProfileScreen = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (isEditing && userProfile) {
+      setSelectedGender(userProfile.gender || 'male');
+    }
+  }, [isEditing]);
 
   const requestMediaLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -75,6 +86,7 @@ const DetailedProfileScreen = () => {
       };
       const response = await updateProfile(updateData);
       if (response.success) {
+        setUserProfile(prev => prev ? { ...prev, gender: selectedGender } : null);
         Alert.alert('Thành công', 'Cập nhật thông tin thành công');
         setIsEditing(false);
       } else {
@@ -137,6 +149,20 @@ const DetailedProfileScreen = () => {
   };
 
   const renderField = (label: string, value: string, field: keyof UserProfile) => {
+    if (field === 'email') {
+      return (
+        <View style={styles.fieldContainer}>
+          <Text style={styles.label}>{label}</Text>
+          <View style={styles.emailContainer}>
+            <Text style={styles.value} numberOfLines={1} ellipsizeMode="tail">
+              {value || 'Chưa cập nhật'}
+            </Text>
+            <Ionicons name="lock-closed" size={16} color="#999" style={styles.lockIcon} />
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.fieldContainer}>
         <Text style={styles.label}>{label}</Text>
@@ -154,34 +180,42 @@ const DetailedProfileScreen = () => {
   };
 
   const renderGenderSelection = () => {
+    const currentGender = userProfile?.gender || selectedGender;
+    
     if (!isEditing) {
-      return <Text style={styles.value}>{selectedGender === 'male' ? 'Nam' : 'Nữ'}</Text>;
+      return <Text style={styles.value}>{currentGender === 'male' ? 'Nam' : 'Nữ'}</Text>;
     }
 
     return (
       <View style={styles.genderContainer}>
         <TouchableOpacity
           style={styles.genderOption}
-          onPress={() => setSelectedGender('male')}
+          onPress={() => {
+            setSelectedGender('male');
+            setUserProfile(prev => prev ? { ...prev, gender: 'male' } : null);
+          }}
         >
           <View style={[
             styles.radioButton,
-            selectedGender === 'male' && styles.radioButtonSelected
+            currentGender === 'male' && styles.radioButtonSelected
           ]}>
-            {selectedGender === 'male' && <View style={styles.radioButtonInner} />}
+            {currentGender === 'male' && <View style={styles.radioButtonInner} />}
           </View>
           <Text style={styles.genderLabel}>Nam</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.genderOption}
-          onPress={() => setSelectedGender('female')}
+          onPress={() => {
+            setSelectedGender('female');
+            setUserProfile(prev => prev ? { ...prev, gender: 'female' } : null);
+          }}
         >
           <View style={[
             styles.radioButton,
-            selectedGender === 'female' && styles.radioButtonSelected
+            currentGender === 'female' && styles.radioButtonSelected
           ]}>
-            {selectedGender === 'female' && <View style={styles.radioButtonInner} />}
+            {currentGender === 'female' && <View style={styles.radioButtonInner} />}
           </View>
           <Text style={styles.genderLabel}>Nữ</Text>
         </TouchableOpacity>
@@ -201,18 +235,26 @@ const DetailedProfileScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
       
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+      {/* Header with Gradient Background */}
+      <LinearGradient
+        colors={['#0068ff', '#00a8ff']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.header}
+      >
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Trang cá nhân</Text>
-        <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
+        <TouchableOpacity 
+          onPress={() => setIsEditing(!isEditing)}
+          style={styles.editButtonContainer}
+        >
           <Text style={styles.editButton}>
             {isEditing ? 'Hủy' : 'Chỉnh sửa'}
           </Text>
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -220,47 +262,87 @@ const DetailedProfileScreen = () => {
       >
         <ScrollView style={styles.scrollContainer}>
           <View style={styles.profileSection}>
-            <View style={styles.avatarContainer}>
-              <Avatar
-                rounded
-                source={{ uri: userProfile?.avatar || 'https://randomuser.me/api/portraits/men/20.jpg' }}
-                size={100}
-              />
-              {isEditing && (
-                <TouchableOpacity 
-                  style={styles.changeAvatarButton}
-                  onPress={pickImage}
-                  disabled={uploading}
-                >
-                  {uploading ? (
-                    <ActivityIndicator color="#0068ff" />
-                  ) : (
-                    <Ionicons name="camera" size={24} color="#0068ff" />
+            {/* Profile Card with Background Image */}
+            <ImageBackground
+              source={{ uri: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1733805276/samples/coffee.jpg' }}
+              style={styles.profileCard}
+              imageStyle={styles.backgroundImage}
+            >
+              <View style={styles.overlayGradient}>
+                <View style={styles.avatarContainer}>
+                  <Avatar
+                    rounded
+                    source={{ uri: userProfile?.avatar || 'https://randomuser.me/api/portraits/men/20.jpg' }}
+                    size={120}
+                    containerStyle={styles.avatar}
+                  />
+                  {isEditing && (
+                    <TouchableOpacity 
+                      style={styles.changeAvatarButton}
+                      onPress={pickImage}
+                      disabled={uploading}
+                    >
+                      {uploading ? (
+                        <ActivityIndicator color="#0068ff" size="small" />
+                      ) : (
+                        <View style={styles.cameraIconContainer}>
+                          <Ionicons name="camera" size={20} color="#fff" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
+                </View>
+
+                <View style={styles.nameContainer}>
+                  <Text style={styles.profileName}>
+                    {userProfile?.fullName || 'Đang tải...'}
+                  </Text>
+                  <View style={styles.genderIconContainer}>
+                    <Ionicons 
+                      name={userProfile?.gender === 'male' ? 'male' : 'female'} 
+                      size={24} 
+                      color={userProfile?.gender === 'male' ? '#0068ff' : '#ff4d94'} 
+                    />
+                  </View>
+                </View>
+                <Text style={[styles.profileEmail, { marginTop: -4 }]}>{userProfile?.email || ''}</Text>
+              </View>
+            </ImageBackground>
+
+            {/* Info Section */}
+            <View style={styles.infoSection}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="person-circle-outline" size={24} color="#0068ff" />
+                <Text style={styles.sectionTitle}>Thông tin cá nhân</Text>
+              </View>
+
+              {renderField('Họ và tên', userProfile?.fullName || '', 'fullName')}
+              {renderField('Email', userProfile?.email || '', 'email')}
+              
+              {/* Gender Selection */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>Giới tính</Text>
+                {renderGenderSelection()}
+              </View>
+
+              {renderField('Số điện thoại', userProfile?.phoneNumber || '', 'phoneNumber')}
+              {renderField('Địa chỉ', userProfile?.address || '', 'address')}
+
+              {isEditing && (
+                <Button
+                  title="Lưu thay đổi"
+                  onPress={handleSave}
+                  buttonStyle={styles.saveButton}
+                  titleStyle={styles.saveButtonText}
+                  ViewComponent={LinearGradient}
+                  linearGradientProps={{
+                    colors: ['#0068ff', '#00a8ff'],
+                    start: { x: 0, y: 0 },
+                    end: { x: 1, y: 0 },
+                  }}
+                />
               )}
             </View>
-
-            {renderField('Họ và tên', userProfile?.fullName || '', 'fullName')}
-            {renderField('Email', userProfile?.email || '', 'email')}
-            
-            {/* Gender Selection */}
-            <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Giới tính</Text>
-              {renderGenderSelection()}
-            </View>
-
-            {renderField('Số điện thoại', userProfile?.phoneNumber || '', 'phoneNumber')}
-            {renderField('Địa chỉ', userProfile?.address || '', 'address')}
-
-            {isEditing && (
-              <Button
-                title="Lưu thay đổi"
-                onPress={handleSave}
-                buttonStyle={styles.saveButton}
-                titleStyle={styles.saveButtonText}
-              />
-            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -273,23 +355,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   header: {
     flexDirection: 'row',
-    backgroundColor: '#0068ff',
     paddingHorizontal: 16,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  backButton: {
+    padding: 8,
+  },
   headerTitle: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  editButtonContainer: {
+    padding: 8,
   },
   editButton: {
     color: '#fff',
@@ -304,31 +386,113 @@ const styles = StyleSheet.create({
   profileSection: {
     padding: 16,
   },
-  avatarContainer: {
+  profileCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+    height: 200,
+  },
+  backgroundImage: {
+    resizeMode: 'cover',
+  },
+  overlayGradient: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    flex: 1,
+    padding: 20,
     alignItems: 'center',
-    marginBottom: 24,
+    justifyContent: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: 16,
+    width: 120,
+    height: 120,
+  },
+  avatar: {
+    borderWidth: 4,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   changeAvatarButton: {
     position: 'absolute',
     bottom: 0,
     right: 0,
+    zIndex: 1,
+  },
+  cameraIconContainer: {
+    backgroundColor: '#0068ff',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
+  },
+  profileName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  profileEmail: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  infoSection: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 8,
-    borderWidth: 2,
-    borderColor: '#0068ff',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 8,
   },
   fieldContainer: {
-    marginBottom: 16,
+    marginBottom: 20,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 12,
   },
   label: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   value: {
     fontSize: 16,
     color: '#333',
+    flex: 1,
   },
   input: {
     borderWidth: 1,
@@ -337,16 +501,6 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     backgroundColor: '#fff',
-  },
-  saveButton: {
-    backgroundColor: '#0068ff',
-    borderRadius: 8,
-    paddingVertical: 12,
-    marginTop: 24,
-  },
-  saveButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   genderContainer: {
     flexDirection: 'row',
@@ -381,6 +535,40 @@ const styles = StyleSheet.create({
   genderLabel: {
     fontSize: 16,
     color: '#333',
+  },
+  saveButton: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginTop: 24,
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emailContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 8,
+  },
+  lockIcon: {
+    marginLeft: 8,
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  genderIconContainer: {
+    marginLeft: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
+    padding: 2,
   },
 });
 

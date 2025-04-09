@@ -8,6 +8,7 @@ import { Ionicons, MaterialIcons, FontAwesome, Feather } from '@expo/vector-icon
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getProfile, uploadAvatar } from '../services/api';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -26,6 +27,14 @@ const ProfileScreen = () => {
   useEffect(() => {
     fetchUserProfile();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      setActiveTab('profile');
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const fetchUserProfile = async () => {
     try {
@@ -227,17 +236,23 @@ const ProfileScreen = () => {
             <View style={styles.logoutSeparator} />
 
             {/* Nút đăng xuất */}
-            <TouchableOpacity onPress={handleLogout}>
-              <ListItem containerStyle={styles.logoutItem}>
-                <View style={styles.listItemIcon}>
-                  <MaterialIcons name="logout" size={24} color="#FF3B30" />
-                </View>
-                <ListItem.Content>
-                  <ListItem.Title style={styles.logoutText}>
+            <TouchableOpacity 
+              onPress={handleLogout}
+              style={styles.logoutButton}
+            >
+              <LinearGradient
+                colors={['#FF3B30', '#FF6B6B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.logoutGradient}
+              >
+                <View style={styles.logoutButtonContent}>
+                  <MaterialIcons name="logout" size={24} color="#fff" />
+                  <Text style={styles.logoutText}>
                     Đăng xuất
-                  </ListItem.Title>
-                </ListItem.Content>
-              </ListItem>
+                  </Text>
+                </View>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </View>
@@ -253,56 +268,71 @@ const ProfileScreen = () => {
           }}
         >
           <Ionicons 
-            name="chatbubble-outline" 
+            name={activeTab === 'messages' ? "chatbubble" : "chatbubble-outline"} 
             size={24} 
-            color="#666" 
+            color={activeTab === 'messages' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Tin nhắn</Text>
+          <Text style={[styles.navText, activeTab === 'messages' && styles.activeNavText]}>Tin nhắn</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'contacts' && styles.activeNavItem]} 
-          onPress={() => navigation.navigate('Contacts')}
+          onPress={() => {
+            setActiveTab('contacts');
+            navigation.navigate('Contacts');
+          }}
         >
           <Ionicons 
-            name="people-outline" 
+            name={activeTab === 'contacts' ? "people" : "people-outline"} 
             size={24} 
-            color="#666" 
+            color={activeTab === 'contacts' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Danh bạ</Text>
+          <Text style={[styles.navText, activeTab === 'contacts' && styles.activeNavText]}>Danh bạ</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'discover' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('discover');
+            navigation.navigate('Discovery');
+          }}
         >
           <MaterialIcons 
             name="grid-view" 
             size={24} 
-            color="#666" 
+            color={activeTab === 'discover' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Khám phá</Text>
+          <Text style={[styles.navText, activeTab === 'discover' && styles.activeNavText]}>Khám phá</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'diary' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('diary');
+            navigation.navigate('Diary');
+          }}
         >
           <FontAwesome 
             name="clock-o" 
             size={24} 
-            color="#666" 
+            color={activeTab === 'diary' ? '#0068ff' : '#666'} 
           />
-          <Text style={styles.navText}>Nhật ký</Text>
+          <Text style={[styles.navText, activeTab === 'diary' && styles.activeNavText]}>Nhật ký</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.navItem, activeTab === 'profile' && styles.activeNavItem]} 
+          onPress={() => {
+            setActiveTab('profile');
+            navigation.navigate('Profile');
+          }}
         >
           <FontAwesome 
-            name="user" 
+            name="user-o" 
             size={24} 
-            color="#0068ff" 
+            color={activeTab === 'profile' ? '#0068ff' : '#666'} 
           />
-          <Text style={[styles.navText, styles.activeNavText]}>Cá nhân</Text>
+          <Text style={[styles.navText, activeTab === 'profile' && styles.activeNavText]}>Cá nhân</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -428,9 +458,33 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginHorizontal: 10
   },
+  logoutButton: {
+    marginTop: 20,
+    marginHorizontal: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#FF3B30',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  logoutGradient: {
+    padding: 16,
+  },
+  logoutButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   logoutText: {
-    color: '#FF3B30',
-    fontWeight: 'bold',
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   logoutSeparator: {
     height: 20,
