@@ -9,6 +9,8 @@ import ProfileScreen from '../screens/ProfileScreen';
 import DiaryScreen from '../screens/DiaryScreen';
 import DetailedProfileScreen from '../screens/DetailedProfileScreen';
 import DiscoveryScreen from '../screens/DiscoveryScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -21,6 +23,7 @@ export type RootStackParamList = {
   Chat: { chatId: string };
   ForgotPassword: undefined;
   Discovery: undefined;
+  ResetPassword: { email: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -34,8 +37,14 @@ const AppNavigator = () => {
           headerShown: false,
         }}
       >
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen 
+          name="Login" 
+          component={LoginScreen}
+        />
+        <Stack.Screen 
+          name="Register" 
+          component={RegisterScreen}
+        />
         <Stack.Screen 
           name="Messages" 
           component={MessagesScreen}
@@ -62,11 +71,11 @@ const AppNavigator = () => {
         />
         <Stack.Screen 
           name="ForgotPassword" 
-          component={LoginScreen} // Tạm thời sử dụng LoginScreen, sau này sẽ tạo ForgotPasswordScreen
-          options={{
-            headerShown: true,
-            headerTitle: 'Forgot Password',
-          }}
+          component={ForgotPasswordScreen}
+        />
+        <Stack.Screen 
+          name="ResetPassword" 
+          component={ResetPasswordScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>

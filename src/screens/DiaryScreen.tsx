@@ -5,21 +5,40 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome, Feather } from '@expo/vector-icons';
+import { getProfile } from '../services/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface UserProfile {
+  fullName: string;
+  avatar: string;
+  email: string;
+}
 
 const DiaryScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('diary');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  // Add useEffect to handle navigation state changes
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       setActiveTab('diary');
+      loadUserProfile();
     });
 
     return unsubscribe;
   }, [navigation]);
+
+  const loadUserProfile = async () => {
+    try {
+      const response = await getProfile();
+      if (response.success) {
+        setUserProfile(response.user);
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -51,7 +70,7 @@ const DiaryScreen = () => {
           <View style={styles.statusHeader}>
             <Avatar
               rounded
-              source={{ uri: 'https://randomuser.me/api/portraits/men/20.jpg' }}
+              source={{ uri: userProfile?.avatar || 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg' }}
               size={50}
             />
             <Text style={styles.statusPrompt}>Hôm nay bạn thế nào?</Text>
@@ -95,7 +114,7 @@ const DiaryScreen = () => {
             <View style={styles.momentsList}>
               <TouchableOpacity style={styles.momentItem}>
                 <Image 
-                  source={{ uri: 'https://randomuser.me/api/portraits/men/20.jpg' }} 
+                  source={{ uri: userProfile?.avatar || 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg' }} 
                   style={styles.momentImage} 
                 />
                 <View style={styles.editIconContainer}>
