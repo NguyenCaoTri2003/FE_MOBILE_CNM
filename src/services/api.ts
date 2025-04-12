@@ -196,4 +196,44 @@ export const changePassword = async (currentPassword: string, newPassword: strin
     console.error('Change password error:', error.response?.data || error);
     throw error.response?.data || error;
   }
+};
+
+export const registerSendVerification = async (email: string) => {
+  try {
+    const response = await api.post('/register/send-verification', { email });
+    console.log('Send verification response:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('Send verification error:', error.response?.data || error);
+    throw error.response?.data || error;
+  }
+};
+
+export const registerVerify = async (
+  email: string,
+  code: string,
+  fullName: string,
+  password: string,
+  phoneNumber: string
+) => {
+  try {
+    const userData = {
+      email,
+      code,
+      fullName,
+      password,
+      phoneNumber,
+      avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
+    };
+    
+    console.log('Register verify request data:', userData);
+    
+    const response = await api.post('/register/verify', userData);
+    console.log('Register verify response:', response.data);
+    
+    return response.data;
+  } catch (error: any) {
+    console.error('Register verify error:', error.response?.data || error);
+    throw error.response?.data || error;
+  }
 }; 
