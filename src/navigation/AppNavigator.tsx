@@ -12,6 +12,7 @@ import DiscoveryScreen from '../screens/DiscoveryScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
+import FriendRequestsScreen from '../screens/FriendRequestsScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -26,6 +27,7 @@ export type RootStackParamList = {
   Discovery: undefined;
   ResetPassword: { email: string };
   ChangePassword: undefined;
+  FriendRequests: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -82,6 +84,20 @@ const AppNavigator = () => {
         <Stack.Screen 
           name="ChangePassword" 
           component={ChangePasswordScreen}
+        />
+        <Stack.Screen
+          name="FriendRequests"
+          component={FriendRequestsScreen}
+          options={{
+            title: 'Lời mời kết bạn',
+            headerStyle: {
+              backgroundColor: '#0068ff',
+            },
+            headerTintColor: '#fff',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+            },
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>

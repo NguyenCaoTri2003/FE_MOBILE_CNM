@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 // Use your computer's IP address instead of localhost
 // You can find your IP address by running 'ipconfig' in Command Prompt
-const BASE_URL = 'http://192.168.110.77:5000/api';
+const BASE_URL = 'http://192.168.110.33:5000/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -37,15 +37,12 @@ api.interceptors.response.use(
     if (error.response) {
       // The request was made and the server responded with a status code
       // that falls out of the range of 2xx
-      console.error('Response Error:', error.response.data);
       return Promise.reject(error.response.data);
     } else if (error.request) {
       // The request was made but no response was received
-      console.error('Request Error:', error.request);
       return Promise.reject({ message: 'No response from server. Please check your internet connection.' });
     } else {
       // Something happened in setting up the request that triggered an Error
-      console.error('Error:', error.message);
       return Promise.reject({ message: 'An unexpected error occurred.' });
     }
   }
@@ -85,14 +82,9 @@ export const register = async (email: string, password: string, name: string, ph
       avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
     };
     
-    console.log('Register request data:', userData);
-    
     const response = await api.post('/register', userData);
-    console.log('Register response:', response.data);
-    
     return response.data;
   } catch (error: any) {
-    console.error('Register error:', error.response?.data || error);
     throw error.response?.data || error;
   }
 };
@@ -115,7 +107,6 @@ export const resetPassword = async (email: string, code: string, password: strin
     });
     return response.data;
   } catch (error: any) {
-    console.log('Reset password error:', error.response?.data);
     throw error.response?.data || error;
   }
 };
@@ -134,7 +125,6 @@ export const updateProfile = async (data: any) => {
     const response = await api.put('/profile', data);
     return response.data;
   } catch (error: any) {
-    console.error('Error updating profile:', error.response?.data || error);
     throw error.response?.data || error;
   }
 };
@@ -168,18 +158,13 @@ export const uploadAvatar = async (uri: string) => {
 
     return response.data;
   } catch (error: any) {
-    console.error('Error uploading avatar:', error);
-    
     if (error.code === 'ECONNABORTED') {
       throw { message: 'Kết nối quá lâu. Vui lòng thử lại.' };
     } else if (error.response) {
-      console.error('Response Error:', error.response.data);
       throw error.response.data;
     } else if (error.request) {
-      console.error('Request Error:', error.request);
       throw { message: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.' };
     } else {
-      console.error('Error:', error.message);
       throw { message: 'Có lỗi xảy ra khi tải lên ảnh đại diện.' };
     }
   }
@@ -193,7 +178,6 @@ export const changePassword = async (currentPassword: string, newPassword: strin
     });
     return response.data;
   } catch (error: any) {
-    console.error('Change password error:', error.response?.data || error);
     throw error.response?.data || error;
   }
 };
@@ -201,10 +185,8 @@ export const changePassword = async (currentPassword: string, newPassword: strin
 export const registerSendVerification = async (email: string) => {
   try {
     const response = await api.post('/register/send-verification', { email });
-    console.log('Send verification response:', response.data);
     return response.data;
   } catch (error: any) {
-    console.error('Send verification error:', error.response?.data || error);
     throw error.response?.data || error;
   }
 };
@@ -226,14 +208,110 @@ export const registerVerify = async (
       avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
     };
     
-    console.log('Register verify request data:', userData);
-    
     const response = await api.post('/register/verify', userData);
-    console.log('Register verify response:', response.data);
-    
     return response.data;
   } catch (error: any) {
-    console.error('Register verify error:', error.response?.data || error);
     throw error.response?.data || error;
+  }
+}; 
+
+export interface SearchUserResponse {
+  success: boolean;
+  data: {
+    fullName: string;
+    avatar: string;
+    phoneNumber: string;
+    email: string;
+  };
+}
+
+export const searchUsers = async (query: string): Promise<SearchUserResponse> => {
+  try {
+    // Check if query is email or phone number
+    const isEmail = query.includes('@');
+    let params;
+    
+    if (isEmail) {
+      params = { email: query };
+    } else {
+      // Format phone number: convert 0xxx to +84xxx
+      let formattedPhone = query.replace(/[\s-]/g, ''); // Remove spaces and dashes
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = `+84${formattedPhone.substring(1)}`;
+      }
+      params = { phoneNumber: formattedPhone };
+    }
+    
+    const response = await api.get('/search', { params });
+    return response.data;
+  } catch (error) {
+    // Just throw the error without logging
+    throw error;
+  }
+}; 
+
+export interface FriendRequest {
+  email: string;
+  fullName: string;
+  avatar: string;
+  timestamp: string;
+  status: string;
+}
+
+export interface FriendRequestsResponse {
+  success: boolean;
+  data: {
+    received: FriendRequest[];
+    sent: FriendRequest[];
+  };
+}
+
+export interface FriendsResponse {
+  success: boolean;
+  data: FriendRequest[];
+}
+
+export const sendFriendRequest = async (receiverEmail: string) => {
+  try {
+    const response = await api.post('/friend-request/send', { receiverEmail });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const respondToFriendRequest = async (senderEmail: string, accept: boolean) => {
+  try {
+    const response = await api.post('/friend-request/respond', { senderEmail, accept });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const getFriendRequests = async (): Promise<FriendRequestsResponse> => {
+  try {
+    const response = await api.get('/friend-requests');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const getFriends = async (): Promise<FriendsResponse> => {
+  try {
+    const response = await api.get('/friends');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const withdrawFriendRequest = async (receiverEmail: string) => {
+  try {
+    const response = await api.post('/friend-request/withdraw', { receiverEmail });
+    return response.data;
+  } catch (error) {
+    throw error;
   }
 }; 
