@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar } from 'react-native';
 import { Text, Avatar } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -20,7 +20,6 @@ const MessagesScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('messages');
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -28,7 +27,7 @@ const MessagesScreen = () => {
     
     const unsubscribe = navigation.addListener('focus', () => {
       setActiveTab('messages');
-      fetchFriends(); // Refresh friends list when screen is focused
+      fetchFriends();
     });
 
     return unsubscribe;
@@ -36,10 +35,8 @@ const MessagesScreen = () => {
 
   const fetchFriends = async () => {
     try {
-      setLoading(true);
       const response = await getFriends();
       if (response.success && response.data) {
-        // Transform the response data to match Friend interface
         const transformedFriends = response.data.map((friend: any) => ({
           email: friend.email,
           fullName: friend.fullName,
@@ -50,8 +47,6 @@ const MessagesScreen = () => {
       }
     } catch (error) {
       console.error('Error fetching friends:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -63,7 +58,11 @@ const MessagesScreen = () => {
   const renderFriendItem = ({ item }: { item: Friend }) => (
     <TouchableOpacity 
       style={styles.conversationItem}
-      onPress={() => navigation.navigate('Chat', { chatId: item.email })}
+      onPress={() => navigation.navigate('Chat', { 
+        fullName: item.fullName,
+        avatar: item.avatar,
+        chatId: item.email
+      })}
     >
       <View style={styles.avatarContainer}>
         <Avatar
@@ -81,14 +80,6 @@ const MessagesScreen = () => {
       </View>
     </TouchableOpacity>
   );
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0068ff" />
-      </View>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -216,12 +207,6 @@ const MessagesScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#f5f5f5',
   },
   emptyContainer: {

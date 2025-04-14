@@ -13,6 +13,7 @@ import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import FriendRequestsScreen from '../screens/FriendRequestsScreen';
+import ChatScreen from '../screens/ChatScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -22,7 +23,12 @@ export type RootStackParamList = {
   Profile: undefined;
   DetailedProfile: undefined;
   Diary: undefined;
-  Chat: { chatId: string };
+  Chat: { 
+    chatId: string;
+    fullName: string;
+    avatar: string;
+    lastSeen?: string;
+  };
   ForgotPassword: undefined;
   Discovery: undefined;
   ResetPassword: { email: string };
@@ -98,6 +104,10 @@ const AppNavigator = () => {
               fontWeight: 'bold',
             },
           }}
+        />
+        <Stack.Screen
+          name="Chat"
+          component={ChatScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>

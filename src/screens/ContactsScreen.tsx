@@ -65,7 +65,6 @@ const ContactsScreen = () => {
   const [contactsIndex, setContactsIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
   const [pendingFriendRequests, setPendingFriendRequests] = useState(0);
@@ -76,71 +75,19 @@ const ContactsScreen = () => {
   const [totalFriends, setTotalFriends] = useState(0);
   const [recentlyActive, setRecentlyActive] = useState(0);
 
-  // Add focus effect to refresh data when screen is focused
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      // Refresh friend requests and sent requests
-      const loadFriendRequests = async () => {
-        try {
-          const response = await getFriendRequests();
-          if (response.success) {
-            const { received, sent } = response.data;
-            setFriendRequests(received);
-            setPendingFriendRequests(received.length);
-            setSentRequests(sent);
-            setSentRequestEmails(new Set(sent.map(req => req.email)));
-          }
-        } catch (error) {
-          // Handle error silently
-          setFriendRequests([]);
-          setPendingFriendRequests(0);
-          setSentRequests([]);
-          setSentRequestEmails(new Set());
-        }
-      };
-
-      // Refresh friends list
-      const loadFriends = async () => {
-        try {
-          const response = await getFriends();
-          if (response.success) {
-            const friends = response.data;
-            const groupedFriends = groupFriendsByFirstLetter(friends);
-            setContacts(groupedFriends);
-            setTotalFriends(friends.length);
-            setRecentlyActive(friends.filter((friend: Friend) => friend.online).length);
-            setFriendList(new Set(friends.map((friend: Friend) => friend.email)));
-          }
-        } catch (error) {
-          // Handle error silently
-          setContacts([]);
-          setTotalFriends(0);
-          setRecentlyActive(0);
-          setFriendList(new Set());
-        }
-      };
-
-      // Refresh search results if there's an active search
-      if (searchQuery.trim()) {
-        debouncedSearch(searchQuery);
-      }
-
-      // Load all data
-      Promise.all([loadFriendRequests(), loadFriends()]);
-    });
-
-    return unsubscribe;
-  }, [navigation, searchQuery]);
-
-  // Load initial data
-  useEffect(() => {
+    // Load initial data without loading states
     const loadInitialData = async () => {
       try {
         // Emit socket event to get initial friends list
         socketService.emit('getFriendsList', {});
 
-        // Load friend requests data
-        const friendRequestsResponse = await getFriendRequests();
+        // Load friend requests and friends data in parallel
+        const [friendRequestsResponse, friendsResponse] = await Promise.all([
+          getFriendRequests(),
+          getFriends()
+        ]);
+
         if (friendRequestsResponse.success) {
           const { received, sent } = friendRequestsResponse.data;
           setFriendRequests(received);
@@ -148,168 +95,29 @@ const ContactsScreen = () => {
           setSentRequests(sent);
           setSentRequestEmails(new Set(sent.map(req => req.email)));
         }
+
+        if (friendsResponse.success && friendsResponse.data) {
+          const friends = friendsResponse.data;
+          const groupedFriends = groupFriendsByFirstLetter(friends);
+          setContacts(groupedFriends);
+          setTotalFriends(friends.length);
+          setRecentlyActive(friends.filter((friend: Friend) => friend.online).length);
+          setFriendList(new Set(friends.map((friend: Friend) => friend.email)));
+        }
       } catch (error) {
-        setFriendRequests([]);
-        setPendingFriendRequests(0);
-        setSentRequests([]);
-        setSentRequestEmails(new Set());
+        console.error('Error loading initial data:', error);
       }
     };
 
     loadInitialData();
-  }, []);
 
-  // Socket event handlers for real-time updates
-  useEffect(() => {
-    // Handle initial friends list data
-    const handleInitialFriendsList = (data: Friend[]) => {
-      const groupedFriends = groupFriendsByFirstLetter(data);
-      setContacts(groupedFriends);
-      setTotalFriends(data.length);
-      setRecentlyActive(data.filter((friend: Friend) => friend.online).length);
-      setFriendList(new Set(data.map((friend: Friend) => friend.email)));
-    };
+    const unsubscribe = navigation.addListener('focus', () => {
+      setActiveTab('contacts');
+      loadInitialData();
+    });
 
-    // Handle friend status changes
-    const handleFriendStatusChange = (data: { email: string; online: boolean }) => {
-      setContacts(prev => {
-        return prev.map(group => ({
-          ...group,
-          items: group.items.map(contact => 
-            contact.email === data.email 
-              ? { ...contact, online: data.online }
-              : contact
-          )
-        }));
-      });
-      
-      setRecentlyActive(prev => data.online ? prev + 1 : Math.max(0, prev - 1));
-    };
-
-    // Handle new friend added
-    const handleFriendAdded = (newFriend: Friend) => {
-      setContacts(prev => {
-        const firstLetter = newFriend.fullName.charAt(0).toUpperCase();
-        const existingGroupIndex = prev.findIndex(group => group.letter === firstLetter);
-        
-        if (existingGroupIndex !== -1) {
-          const newGroups = [...prev];
-          newGroups[existingGroupIndex].items.push(newFriend);
-          newGroups[existingGroupIndex].items.sort((a, b) => 
-            a.fullName.localeCompare(b.fullName)
-          );
-          return newGroups;
-        } else {
-          const newGroup = {
-            letter: firstLetter,
-            items: [newFriend]
-          };
-          return [...prev, newGroup].sort((a, b) => 
-            a.letter.localeCompare(b.letter)
-          );
-        }
-      });
-      
-      setTotalFriends(prev => prev + 1);
-      if (newFriend.online) {
-        setRecentlyActive(prev => prev + 1);
-      }
-      setFriendList(prev => new Set([...prev, newFriend.email]));
-    };
-
-    // Handle friend removed
-    const handleFriendRemoved = (removedEmail: string) => {
-      setContacts(prev => {
-        const newGroups = prev.map(group => ({
-          ...group,
-          items: group.items.filter(contact => contact.email !== removedEmail)
-        })).filter(group => group.items.length > 0);
-        
-        return newGroups;
-      });
-      
-      setTotalFriends(prev => Math.max(0, prev - 1));
-      setFriendList(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(removedEmail);
-        return newSet;
-      });
-      
-      setRecentlyActive(prev => {
-        const wasOnline = contacts.some(group => 
-          group.items.some(contact => 
-            contact.email === removedEmail && contact.online
-          )
-        );
-        return wasOnline ? Math.max(0, prev - 1) : prev;
-      });
-    };
-
-    // Handle real-time search updates
-    const handleSearchUpdate = (data: { email: string; hasSentRequest: boolean; isFriend: boolean }) => {
-      setSearchResults(prev => 
-        prev.map(result => 
-          result.email === data.email 
-            ? { ...result, hasSentRequest: data.hasSentRequest, isFriend: data.isFriend }
-            : result
-        )
-      );
-    };
-
-    // Handle empty state updates
-    const handleEmptyStateUpdate = (data: { hasFriends: boolean }) => {
-      if (data.hasFriends) {
-        // Refresh contacts list
-        const loadContacts = async () => {
-          try {
-            const friendsResponse = await getFriends();
-            if (friendsResponse.success) {
-              const friends = friendsResponse.data;
-              const groupedFriends = groupFriendsByFirstLetter(friends);
-              setContacts(groupedFriends);
-              setTotalFriends(friends.length);
-              setRecentlyActive(friends.filter((friend: Friend) => friend.online).length);
-              setFriendList(new Set(friends.map((friend: Friend) => friend.email)));
-            }
-          } catch (error) {
-            console.error('Error loading contacts:', error);
-          }
-        };
-        loadContacts();
-      }
-    };
-
-    // Subscribe to socket events
-    socketService.on('initialFriendsList', handleInitialFriendsList);
-    socketService.on('friendStatusChange', handleFriendStatusChange);
-    socketService.on('friendAdded', handleFriendAdded);
-    socketService.on('friendRemoved', handleFriendRemoved);
-    socketService.on('searchUpdate', handleSearchUpdate);
-    socketService.on('emptyStateUpdate', handleEmptyStateUpdate);
-
-    // Cleanup socket listeners
-    return () => {
-      socketService.off('initialFriendsList', handleInitialFriendsList);
-      socketService.off('friendStatusChange', handleFriendStatusChange);
-      socketService.off('friendAdded', handleFriendAdded);
-      socketService.off('friendRemoved', handleFriendRemoved);
-      socketService.off('searchUpdate', handleSearchUpdate);
-      socketService.off('emptyStateUpdate', handleEmptyStateUpdate);
-    };
-  }, []);
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    setShowSearchResults(!!query.trim());
-    if (query.trim()) {
-      debouncedSearch(query);
-      // Emit search event to server for real-time updates
-      socketService.emit('search', { query });
-    } else {
-      setSearchResults([]);
-      setShowSearchResults(false);
-    }
-  };
+    return unsubscribe;
+  }, [navigation]);
 
   const debouncedSearch = useCallback(
     debounce(async (query: string) => {
@@ -319,7 +127,6 @@ const ContactsScreen = () => {
         return;
       }
 
-      setIsSearching(true);
       try {
         const response = await searchUsers(query) as ApiSearchResponse;
         if (response.success && response.data) {
@@ -343,23 +150,25 @@ const ContactsScreen = () => {
       } catch (error) {
         setSearchResults([]);
         setShowSearchResults(true);
-      } finally {
-        setIsSearching(false);
       }
     }, 300),
     [sentRequests, contacts]
   );
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setShowSearchResults(!!query.trim());
+    if (query.trim()) {
+      debouncedSearch(query);
+      socketService.emit('search', { query });
+    } else {
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  };
+
   const renderSearchResults = () => {
     if (!showSearchResults) return null;
-
-    if (isSearching) {
-      return (
-        <View style={styles.searchResultsContainer}>
-          <ActivityIndicator size="large" color="#0068ff" />
-        </View>
-      );
-    }
 
     if (searchResults.length === 0) {
       return (
@@ -372,7 +181,6 @@ const ContactsScreen = () => {
     return (
       <View style={styles.searchResultsContainer}>
         {searchResults.map((user, index) => {
-          // Always check current state when rendering
           const isFriend = user.email ? friendList.has(user.email) : false;
           const hasSentRequest = user.email ? sentRequestEmails.has(user.email) : false;
 
@@ -670,9 +478,6 @@ const ContactsScreen = () => {
     // Execute all state updates in one go
     updates();
   };
-
-  // Remove loading indicator component
-  const LoadingIndicator = () => null;
 
   return (
     <SafeAreaView style={styles.container}>
