@@ -1,132 +1,94 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Image } from 'react-native';
-import { Text, Avatar, Badge } from '@rneui/themed';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ActivityIndicator } from 'react-native';
+import { Text, Avatar } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { Ionicons, MaterialIcons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
-
-// Mock data for conversations
-const mockConversations = [
-  {
-    id: '1',
-    name: 'Cloud của tôi',
-    lastMessage: 'Bạn: Các tài liệu đã được sao lưu',
-    time: 'T5',
-    avatar: 'https://randomuser.me/api/portraits/lego/1.jpg',
-    isOfficial: true
-  },
-  {
-    id: '2',
-    name: 'Tin tức 24h',
-    lastMessage: 'Tin mới: Dự báo thời tiết ngày mai...',
-    time: '',
-    avatar: 'https://randomuser.me/api/portraits/lego/2.jpg',
-    hasNotification: true
-  },
-  {
-    id: '3',
-    name: 'Nhóm Học tập CNTT',
-    lastMessage: 'Nguyễn Văn A: [Hình ảnh] Deadline nộp bài tập...',
-    time: '6 giờ',
-    avatar: 'https://randomuser.me/api/portraits/men/11.jpg',
-    isGroup: true,
-    memberCount: 45
-  },
-  {
-    id: '4',
-    name: 'Lớp KTPM 2023',
-    lastMessage: 'Bạn: Em gửi file báo cáo rồi ạ',
-    time: '14 giờ',
-    avatar: 'https://randomuser.me/api/portraits/men/12.jpg',
-    isGroup: true
-  },
-  {
-    id: '5',
-    name: 'Nhóm Dự án Java',
-    lastMessage: 'Trần Văn B: mọi người họp online lúc 7h nhé',
-    time: '16 giờ',
-    avatar: 'https://randomuser.me/api/portraits/men/13.jpg',
-    isGroup: true,
-    memberCount: 6
-  },
-  {
-    id: '6',
-    name: 'Gia đình',
-    lastMessage: 'Mẹ: Con nhớ ăn cơm đầy đủ nhé...',
-    time: '16 giờ',
-    avatar: 'https://randomuser.me/api/portraits/women/10.jpg',
-    isGroup: true
-  },
-  {
-    id: '7',
-    name: 'Nguyễn Văn A',
-    lastMessage: 'Tối nay đi đá bóng không bạn?',
-    time: '20 giờ',
-    avatar: 'https://randomuser.me/api/portraits/men/14.jpg'
-  },
-  {
-    id: '8',
-    name: 'Nhóm Bạn Thân',
-    lastMessage: 'Lê Thị C: Cuối tuần này đi cafe nhé cả nhóm',
-    time: 'T2',
-    avatar: 'https://randomuser.me/api/portraits/women/12.jpg',
-    isGroup: true,
-    memberCount: 5
-  }
-];
+import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
+import { getFriends } from '../services/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface Friend {
+  email: string;
+  fullName: string;
+  avatar: string;
+  phoneNumber: string;
+}
 
 const MessagesScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('messages');
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Add useEffect to handle navigation state changes
   useEffect(() => {
+    fetchFriends();
+    
     const unsubscribe = navigation.addListener('focus', () => {
       setActiveTab('messages');
+      fetchFriends(); // Refresh friends list when screen is focused
     });
 
     return unsubscribe;
   }, [navigation]);
 
-  const renderConversationItem = ({ item }: { item: any }) => (
-    <TouchableOpacity style={styles.conversationItem}>
+  const fetchFriends = async () => {
+    try {
+      setLoading(true);
+      const response = await getFriends();
+      if (response.success && response.data) {
+        // Transform the response data to match Friend interface
+        const transformedFriends = response.data.map((friend: any) => ({
+          email: friend.email,
+          fullName: friend.fullName,
+          avatar: friend.avatar,
+          phoneNumber: friend.phoneNumber || ''
+        }));
+        setFriends(transformedFriends);
+      }
+    } catch (error) {
+      console.error('Error fetching friends:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredFriends = friends.filter(friend => 
+    friend.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    friend.phoneNumber.includes(searchQuery)
+  );
+
+  const renderFriendItem = ({ item }: { item: Friend }) => (
+    <TouchableOpacity 
+      style={styles.conversationItem}
+      onPress={() => navigation.navigate('Chat', { chatId: item.email })}
+    >
       <View style={styles.avatarContainer}>
         <Avatar
           rounded
-          source={{ uri: item.avatar }}
+          source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
           size={50}
         />
-        {item.isGroup && item.memberCount && (
-          <View style={styles.memberCount}>
-            <Text style={styles.memberCountText}>{item.memberCount}</Text>
-          </View>
-        )}
-        {item.isOfficial && (
-          <View style={styles.officialBadge}>
-            <Ionicons name="checkmark-circle" size={16} color="#f39c12" />
-          </View>
-        )}
       </View>
 
       <View style={styles.conversationDetails}>
         <View style={styles.conversationHeader}>
-          <Text style={styles.conversationName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.timeText}>{item.time}</Text>
+          <Text style={styles.conversationName} numberOfLines={1}>{item.fullName}</Text>
         </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>{item.lastMessage}</Text>
+        <Text style={styles.lastMessage} numberOfLines={1}>{item.phoneNumber}</Text>
       </View>
-
-      {item.hasNotification && (
-        <Badge
-          status="error"
-          containerStyle={styles.notificationBadge}
-        />
-      )}
     </TouchableOpacity>
   );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0068ff" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -137,27 +99,37 @@ const MessagesScreen = () => {
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={24} color="#fff" style={styles.searchIcon} />
           <TextInput
-            placeholder="Tìm kiếm"
+            placeholder="Tìm kiếm bạn bè"
             placeholderTextColor="#fff"
             style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
           />
         </View>
         <View style={styles.headerIcons}>
           <TouchableOpacity style={styles.qrCode}>
             <Ionicons name="qr-code" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.addButton}>
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={() => navigation.navigate('FriendRequests')}
+          >
             <Ionicons name="add" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Conversations List */}
+      {/* Friends List */}
       <FlatList
-        data={mockConversations}
-        renderItem={renderConversationItem}
-        keyExtractor={(item) => item.id}
+        data={filteredFriends}
+        renderItem={renderFriendItem}
+        keyExtractor={(item) => item.email}
         style={styles.list}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>Không tìm thấy bạn bè</Text>
+          </View>
+        }
       />
 
       {/* Bottom Navigation */}
@@ -246,6 +218,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
   header: {
     flexDirection: 'row',
     backgroundColor: '#0068ff',
@@ -291,25 +280,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginRight: 12,
   },
-  memberCount: {
-    position: 'absolute',
-    bottom: 0,
-    right: -2,
-    backgroundColor: '#f39c12',
-    borderRadius: 10,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-  },
-  memberCountText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  officialBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: -2,
-  },
   conversationDetails: {
     flex: 1,
   },
@@ -325,18 +295,9 @@ const styles = StyleSheet.create({
     color: '#333',
     maxWidth: '80%',
   },
-  timeText: {
-    fontSize: 12,
-    color: '#999',
-  },
   lastMessage: {
     fontSize: 14,
     color: '#666',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 15,
-    right: 10,
   },
   bottomNav: {
     flexDirection: 'row',
@@ -361,12 +322,6 @@ const styles = StyleSheet.create({
   },
   activeNavText: {
     color: '#0068ff',
-  },
-  navBadge: {
-    position: 'absolute',
-    top: -5,
-    right: 20,
-    zIndex: 10,
   },
 });
 

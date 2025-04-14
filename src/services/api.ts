@@ -129,44 +129,16 @@ export const updateProfile = async (data: any) => {
   }
 };
 
-export const uploadAvatar = async (uri: string) => {
+export const uploadAvatar = async (formData: FormData) => {
   try {
-    const formData = new FormData();
-    const file = {
-      uri: uri,
-      type: 'image/jpeg',
-      name: 'avatar.jpg'
-    };
-    formData.append('avatar', file as any);
-
     const response = await api.post('/upload-avatar', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
-        'Accept': 'application/json'
       },
-      transformRequest: (data) => {
-        return data;
-      },
-      timeout: 60000, // Increase timeout to 60 seconds
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
     });
-
-    if (!response.data) {
-      throw new Error('No response data received');
-    }
-
     return response.data;
   } catch (error: any) {
-    if (error.code === 'ECONNABORTED') {
-      throw { message: 'Kết nối quá lâu. Vui lòng thử lại.' };
-    } else if (error.response) {
-      throw error.response.data;
-    } else if (error.request) {
-      throw { message: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.' };
-    } else {
-      throw { message: 'Có lỗi xảy ra khi tải lên ảnh đại diện.' };
-    }
+    throw error.response?.data || error;
   }
 };
 

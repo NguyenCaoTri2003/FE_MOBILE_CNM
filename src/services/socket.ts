@@ -8,6 +8,9 @@ interface SocketService {
   off(event: string, callback: (data: any) => void): void;
   emit(event: string, data: any): void;
   disconnect(): void;
+  connect(token: string): void;
+  onProfileUpdate(callback: (data: { fullName: string; avatar: string; email: string }) => void): void;
+  emitProfileUpdate(data: { fullName: string; avatar: string; email: string }): void;
 }
 
 class SocketServiceImpl implements SocketService {
@@ -15,9 +18,7 @@ class SocketServiceImpl implements SocketService {
   private listeners: Map<string, Array<(data: any) => void>> = new Map();
   private static instance: SocketServiceImpl;
 
-  private constructor() {
-    this.initializeSocket();
-  }
+  private constructor() {}
 
   static getInstance(): SocketServiceImpl {
     if (!SocketServiceImpl.instance) {
@@ -26,48 +27,57 @@ class SocketServiceImpl implements SocketService {
     return SocketServiceImpl.instance;
   }
 
-  private async initializeSocket() {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      
-      this.socket = io(SOCKET_URL, {
-        auth: {
-          token
-        },
-        transports: ['websocket'],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      });
-
-      this.socket.on('connect', () => {
-        console.log('Socket connected');
-      });
-
-      this.socket.on('disconnect', () => {
-        console.log('Socket disconnected');
-      });
-
-      this.socket.on('error', (error) => {
-        console.error('Socket error:', error);
-      });
-
-      // Lắng nghe các sự kiện từ server
-      this.socket.on('friendRequestUpdate', (data) => {
-        this.notifyListeners('friendRequestUpdate', data);
-      });
-
-      this.socket.on('friendRequestWithdrawn', (data) => {
-        this.notifyListeners('friendRequestWithdrawn', data);
-      });
-
-      this.socket.on('friendRequestResponded', (data) => {
-        this.notifyListeners('friendRequestResponded', data);
-      });
-
-    } catch (error) {
-      console.error('Socket initialization error:', error);
+  connect(token: string): void {
+    if (this.socket) {
+      this.socket.disconnect();
     }
+
+    this.socket = io(SOCKET_URL, {
+      auth: {
+        token
+      },
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    this.socket.on('connect', () => {
+      console.log('Socket connected');
+    });
+
+    this.socket.on('disconnect', () => {
+      console.log('Socket disconnected');
+    });
+
+    this.socket.on('error', (error) => {
+      console.error('Socket error:', error);
+    });
+
+    // Lắng nghe các sự kiện từ server
+    this.socket.on('friendRequestUpdate', (data) => {
+      this.notifyListeners('friendRequestUpdate', data);
+    });
+
+    this.socket.on('friendRequestWithdrawn', (data) => {
+      this.notifyListeners('friendRequestWithdrawn', data);
+    });
+
+    this.socket.on('friendRequestResponded', (data) => {
+      this.notifyListeners('friendRequestResponded', data);
+    });
+
+    this.socket.on('profileUpdate', (data) => {
+      this.notifyListeners('profileUpdate', data);
+    });
+  }
+
+  onProfileUpdate(callback: (data: { fullName: string; avatar: string; email: string }) => void): void {
+    this.on('profileUpdate', callback);
+  }
+
+  emitProfileUpdate(data: { fullName: string; avatar: string; email: string }): void {
+    this.emit('profileUpdate', data);
   }
 
   on(event: string, callback: (data: any) => void): void {
@@ -103,6 +113,7 @@ class SocketServiceImpl implements SocketService {
   disconnect(): void {
     if (this.socket) {
       this.socket.disconnect();
+      this.socket = null;
     }
   }
 }

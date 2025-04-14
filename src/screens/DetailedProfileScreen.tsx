@@ -72,9 +72,14 @@ const DetailedProfileScreen = () => {
   }, [isEditing]);
 
   const requestMediaLibraryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
+    const { status: mediaStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+    
+    if (mediaStatus !== 'granted') {
       Alert.alert('Cảnh báo', 'Cần cấp quyền truy cập thư viện ảnh để thay đổi ảnh đại diện');
+    }
+    if (cameraStatus !== 'granted') {
+      Alert.alert('Cảnh báo', 'Cần cấp quyền truy cập camera để chụp ảnh đại diện');
     }
   };
 
@@ -101,14 +106,27 @@ const DetailedProfileScreen = () => {
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5,
+        quality: 0.8,
         base64: false,
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
+        const fileInfo = await FileSystem.getInfoAsync(result.assets[0].uri);
+        
+        if (!fileInfo.exists) {
+          Alert.alert('Lỗi', 'Không thể truy cập file ảnh');
+          return;
+        }
+
+        // Kiểm tra kích thước file (tối đa 5MB)
+        if (fileInfo.size && fileInfo.size > 5 * 1024 * 1024) {
+          Alert.alert('Lỗi', 'Kích thước ảnh quá lớn. Vui lòng chọn ảnh nhỏ hơn 5MB');
+          return;
+        }
+
         await uploadNewAvatar(result.assets[0].uri);
       }
     } catch (error) {
@@ -117,11 +135,58 @@ const DetailedProfileScreen = () => {
     }
   };
 
+  const handleTakePhoto = async () => {
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const fileInfo = await FileSystem.getInfoAsync(result.assets[0].uri);
+        if (fileInfo.exists) {
+          await uploadNewAvatar(result.assets[0].uri);
+        } else {
+          Alert.alert('Lỗi', 'Không thể truy cập file ảnh');
+        }
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Lỗi', 'Không thể chụp ảnh');
+    }
+  };
+
   const uploadNewAvatar = async (uri: string) => {
     try {
       setUploading(true);
       
-      const response = await uploadAvatar(uri);
+      // Lấy thông tin file
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('Không thể truy cập file ảnh');
+      }
+
+      // Đọc file dưới dạng base64
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+
+      // Tạo form data
+      const formData = new FormData();
+      formData.append('avatar', {
+        uri: Platform.OS === 'android' ? uri : uri.replace('file://', ''),
+        type: 'image/jpeg',
+        name: 'avatar.jpg',
+        data: base64
+      } as any);
+
+      console.log('Uploading avatar with formData:', formData);
+
+      const response = await uploadAvatar(formData);
+      console.log('Upload response:', response);
+
       if (response.success) {
         setUserProfile(prev => prev ? { ...prev, avatar: response.avatarUrl } : null);
         Alert.alert('Thành công', 'Cập nhật ảnh đại diện thành công');
@@ -277,19 +342,20 @@ const DetailedProfileScreen = () => {
                     containerStyle={styles.avatar}
                   />
                   {isEditing && (
-                    <TouchableOpacity 
-                      style={styles.changeAvatarButton}
-                      onPress={pickImage}
-                      disabled={uploading}
-                    >
-                      {uploading ? (
-                        <ActivityIndicator color="#0068ff" size="small" />
-                      ) : (
-                        <View style={styles.cameraIconContainer}>
-                          <Ionicons name="camera" size={20} color="#fff" />
-                        </View>
-                      )}
-                    </TouchableOpacity>
+                    <View style={styles.avatarButtons}>
+                      <TouchableOpacity 
+                        style={[styles.avatarButton, styles.cameraButton]}
+                        onPress={handleTakePhoto}
+                      >
+                        <Ionicons name="camera" size={20} color="#fff" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.avatarButton, styles.galleryButton]}
+                        onPress={pickImage}
+                      >
+                        <Ionicons name="images" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
 
@@ -420,14 +486,14 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  changeAvatarButton: {
+  avatarButtons: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    zIndex: 1,
+    flexDirection: 'row',
+    gap: 8,
   },
-  cameraIconContainer: {
-    backgroundColor: '#0068ff',
+  avatarButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -435,6 +501,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#fff',
+  },
+  cameraButton: {
+    backgroundColor: '#0068ff',
+  },
+  galleryButton: {
+    backgroundColor: '#4CAF50',
   },
   profileName: {
     fontSize: 24,

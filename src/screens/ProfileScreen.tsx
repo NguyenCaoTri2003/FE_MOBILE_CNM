@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Alert, Platform, ActivityIndicator } from 'react-native';
 import { Text, Avatar, ListItem } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getProfile, uploadAvatar } from '../services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { socketService } from '../services/socket';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -22,10 +23,13 @@ const ProfileScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('profile');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchUserProfile();
+    setupSocket();
+    return () => {
+      socketService.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -45,8 +49,24 @@ const ProfileScreen = () => {
     } catch (error) {
       console.error('Error fetching profile:', error);
       Alert.alert('Lỗi', 'Không thể tải thông tin người dùng');
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const setupSocket = async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (token) {
+        socketService.connect(token);
+        
+        // Lắng nghe sự kiện cập nhật profile
+        socketService.onProfileUpdate((data) => {
+          if (data.email === userProfile?.email) {
+            setUserProfile(prev => prev ? { ...prev, fullName: data.fullName, avatar: data.avatar } : null);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Socket setup error:', error);
     }
   };
 
@@ -85,18 +105,32 @@ const ProfileScreen = () => {
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
-        setLoading(true);
-        const response = await uploadAvatar(result.assets[0].uri);
+        const formData = new FormData();
+        formData.append('avatar', {
+          uri: Platform.OS === 'android' ? result.assets[0].uri : result.assets[0].uri.replace('file://', ''),
+          type: 'image/jpeg',
+          name: 'avatar.jpg'
+        } as any);
+
+        const response = await uploadAvatar(formData);
         if (response.success) {
           setUserProfile(prev => prev ? { ...prev, avatar: response.avatarUrl } : null);
+          
+          // Gửi sự kiện cập nhật profile qua socket
+          if (userProfile) {
+            socketService.emitProfileUpdate({
+              fullName: userProfile.fullName,
+              avatar: response.avatarUrl,
+              email: userProfile.email
+            });
+          }
+          
           Alert.alert('Thành công', 'Cập nhật ảnh đại diện thành công');
         }
       }
     } catch (error: any) {
       console.error('Error uploading avatar:', error);
       Alert.alert('Lỗi', error.message || 'Không thể cập nhật ảnh đại diện');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -195,11 +229,11 @@ const ProfileScreen = () => {
           <View style={styles.profileHeader}>
             <Avatar
               rounded
-              source={{ uri: userProfile?.avatar || 'https://randomuser.me/api/portraits/men/20.jpg' }}
+              source={{ uri: userProfile?.avatar }}
               size={70}
             />
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{userProfile?.fullName || 'Đang tải...'}</Text>
+              <Text style={styles.profileName}>{userProfile?.fullName}</Text>
               <TouchableOpacity 
                 style={styles.viewProfileButton}
                 onPress={() => navigation.navigate('DetailedProfile')}
@@ -207,6 +241,9 @@ const ProfileScreen = () => {
                 <Text style={styles.viewProfileText}>Xem trang cá nhân</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity style={styles.personIconButton}>
+              <Ionicons name="people-outline" size={24} color="#0068ff" />
+            </TouchableOpacity>
           </View>
 
           {/* Settings List */}
@@ -506,6 +543,10 @@ const styles = StyleSheet.create({
     color: '#0068ff',
     fontSize: 14,
     fontWeight: '500',
+  },
+  personIconButton: {
+    padding: 8,
+    marginLeft: 10,
   },
 });
 
