@@ -61,7 +61,7 @@ const MessagesScreen = () => {
       onPress={() => navigation.navigate('Chat', { 
         fullName: item.fullName,
         avatar: item.avatar,
-        chatId: item.email
+        receiverEmail: item.email
       })}
     >
       <View style={styles.avatarContainer}>

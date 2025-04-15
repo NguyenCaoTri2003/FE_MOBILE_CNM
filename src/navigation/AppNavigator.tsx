@@ -24,7 +24,7 @@ export type RootStackParamList = {
   DetailedProfile: undefined;
   Diary: undefined;
   Chat: { 
-    chatId: string;
+    receiverEmail: string;
     fullName: string;
     avatar: string;
     lastSeen?: string;

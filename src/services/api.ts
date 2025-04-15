@@ -1,7 +1,13 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { jwtDecode } from 'jwt-decode';
 
-const BASE_URL = 'http://192.168.110.33:5000/api';
+interface DecodedToken {
+  userId: string;
+  [key: string]: any;
+}
+
+const BASE_URL = 'http://192.168.110.77:5000/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -282,5 +288,96 @@ export const withdrawFriendRequest = async (receiverEmail: string) => {
     return response.data;
   } catch (error) {
     throw error;
+  }
+};
+
+export interface Message {
+  messageId: string;
+  senderEmail: string;
+  receiverEmail: string;
+  content: string;
+  createdAt: string;
+  status: 'sent' | 'delivered' | 'read';
+}
+
+export interface ChatResponse {
+  success: boolean;
+  data: Message[];
+}
+
+export interface SendMessageResponse {
+  success: boolean;
+  data: Message;
+}
+
+export const getMessages = async (receiverEmail: string): Promise<ChatResponse> => {
+  try {
+    console.log('Getting messages for:', receiverEmail);
+    console.log('API URL:', `${BASE_URL}/messages/conversation/${receiverEmail}`);
+    
+    const response = await api.get(`/messages/conversation/${receiverEmail}`);
+    
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to get messages');
+    }
+    
+    console.log('Messages retrieved successfully:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error getting messages:', error);
+    if (error.response) {
+      console.error('Error response:', error.response.data);
+      console.error('Error status:', error.response.status);
+      throw error.response.data;
+    } else if (error.request) {
+      console.error('No response received:', error.request);
+      throw { message: 'No response from server' };
+    } else {
+      console.error('Error setting up request:', error.message);
+      throw error;
+    }
+  }
+};
+
+export const sendMessage = async (
+  receiverEmail: string,
+  content: string,
+  type: 'text' | 'image' | 'file' = 'text'
+): Promise<SendMessageResponse> => {
+  try {
+    console.log('Sending message to:', receiverEmail);
+    console.log('Message content:', content);
+    console.log('API URL:', `${BASE_URL}/messages/send`);
+    
+    const response = await api.post('/messages/send', {
+      receiverEmail,
+      content,
+      type
+    });
+    
+    console.log('Message sent successfully:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error sending message:', error);
+    if (error.response) {
+      console.error('Error response:', error.response.data);
+      console.error('Error status:', error.response.status);
+      throw error.response.data;
+    } else if (error.request) {
+      console.error('No response received:', error.request);
+      throw { message: 'No response from server' };
+    } else {
+      console.error('Error setting up request:', error.message);
+      throw error;
+    }
+  }
+};
+
+export const markMessageAsRead = async (messageId: string): Promise<void> => {
+  try {
+    await api.put(`/messages/read/${messageId}`);
+  } catch (error: any) {
+    console.error('Error marking message as read:', error);
+    throw error.response?.data || error;
   }
 }; 
