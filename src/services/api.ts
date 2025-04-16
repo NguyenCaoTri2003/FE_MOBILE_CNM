@@ -311,7 +311,7 @@ export type Message = {
   content: string;
   createdAt: string;
   status: 'sent' | 'read';
-  type?: 'text' | 'image' | 'file';
+  type?: 'text' | 'image' | 'file' | 'video';
   metadata?: {
     fileName?: string;
     fileSize?: number;
@@ -374,7 +374,7 @@ export const getMessages = async (receiverEmail: string): Promise<ChatResponse> 
 export const sendMessage = async (
   receiverEmail: string,
   content: string,
-  type: 'text' | 'image' | 'file' = 'text',
+  type: 'text' | 'image' | 'file' | 'video' = 'text',
   metadata?: {
     fileName: string;
     fileSize: number;
@@ -541,6 +541,15 @@ export const deleteMessage = async (messageId: string) => {
     return response.data;
   } catch (error) {
     console.error('Error deleting message:', error);
+    throw error;
+  }
+};
+
+export const unfriend = async (friendEmail: string) => {
+  try {
+    const response = await api.post('/friends/unfriend', { friendEmail });
+    return response.data;
+  } catch (error) {
     throw error;
   }
 }; 

@@ -549,29 +549,50 @@ const ChatScreen = () => {
         return;
       }
 
-      // Pick image
+      // Pick image with compression
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.5, // Reduce quality to 50%
+        base64: false,
+        exif: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedImage = result.assets[0];
+        
+        // Check file size
+        const fileInfo = await FileSystem.getInfoAsync(selectedImage.uri);
+        if (!fileInfo.exists) {
+          Alert.alert('Lỗi', 'Không thể truy cập file ảnh');
+          return;
+        }
+        
+        const fileSize = (fileInfo as any).size;
+        if (fileSize && fileSize > 10 * 1024 * 1024) { // 10MB limit
+          Alert.alert('Lỗi', 'Kích thước ảnh quá lớn. Vui lòng chọn ảnh nhỏ hơn 10MB.');
+          return;
+        }
+
         setUploading(true);
 
-        // Create form data
-        const formData = new FormData();
-        formData.append('file', {
-          uri: selectedImage.uri,
-          type: 'image/jpeg',
-          name: 'image.jpg',
-        } as any);
-
         try {
-          // Upload image
-          const uploadResponse = await uploadFile(formData);
+          // Create form data with compressed image
+          const formData = new FormData();
+          formData.append('file', {
+            uri: selectedImage.uri,
+            type: 'image/jpeg',
+            name: 'image.jpg',
+          } as any);
+
+          // Upload image with timeout handling
+          const uploadResponse = await Promise.race([
+            uploadFile(formData),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Upload timeout')), 30000) // 30 second timeout
+            )
+          ]);
           
           if (uploadResponse.success) {
             // Send message with image URL
@@ -603,15 +624,101 @@ const ChatScreen = () => {
                 });
               }
             }
+          } else {
+            throw new Error('Upload failed');
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error uploading image:', error);
-          Alert.alert('Error', 'Failed to upload image. Please try again.');
+          let errorMessage = 'Không thể tải lên ảnh';
+          
+          if (error.message === 'Upload timeout') {
+            errorMessage = 'Tải lên ảnh quá thời gian. Vui lòng thử lại.';
+          } else if (error.response?.data?.message) {
+            errorMessage = error.response.data.message;
+          }
+          
+          Alert.alert('Lỗi', errorMessage);
         }
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
+      Alert.alert('Lỗi', 'Không thể chọn ảnh. Vui lòng thử lại.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleVideoPick = async () => {
+    try {
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant permission to access your videos');
+        return;
+      }
+
+      // Pick video
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: true,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedVideo = result.assets[0];
+        setUploading(true);
+
+        // Create form data
+        const formData = new FormData();
+        formData.append('file', {
+          uri: selectedVideo.uri,
+          type: 'video/mp4',
+          name: 'video.mp4',
+        } as any);
+
+        try {
+          // Upload video
+          const uploadResponse = await uploadFile(formData);
+          
+          if (uploadResponse.success) {
+            // Send message with video URL
+            const messageResponse = await sendMessage(
+              receiverEmail,
+              uploadResponse.data.url,
+              'video',
+              {
+                fileName: uploadResponse.data.originalname,
+                fileSize: uploadResponse.data.size,
+                fileType: uploadResponse.data.mimetype
+              }
+            );
+
+            if (messageResponse.success) {
+              setMessages(prev => {
+                const messageExists = prev.some(msg => msg.messageId === messageResponse.data.messageId);
+                if (!messageExists) {
+                  return [...prev, messageResponse.data];
+                }
+                return prev;
+              });
+
+              // Emit socket event
+              if (socket.current) {
+                socket.current.emit('newMessage', {
+                  receiverEmail,
+                  message: messageResponse.data
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error uploading video:', error);
+          Alert.alert('Error', 'Failed to upload video. Please try again.');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking video:', error);
+      Alert.alert('Error', 'Failed to pick video. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -620,6 +727,9 @@ const ChatScreen = () => {
   const handleReaction = async (message: Message, reaction: string) => {
     try {
       console.log('Sending reaction:', { messageId: message.messageId, reaction });
+      
+      // Close reactions menu immediately
+      setShowReactions(false);
       
       // Cập nhật UI ngay lập tức
       setMessages(prev => prev.map(msg => 
@@ -683,13 +793,15 @@ const ChatScreen = () => {
       ));
       Alert.alert('Lỗi', 'Không thể thả cảm xúc. Vui lòng thử lại.');
     }
-    setShowReactions(false);
   };
 
   // Thêm hàm xử lý thu hồi tin nhắn
   const handleRecallMessage = async (message: Message) => {
     try {
       console.log('Attempting to recall message:', message.messageId);
+      
+      // Close the message actions menu immediately
+      setShowMessageActions(false);
       
       // Cập nhật UI ngay lập tức
       setMessages(prev => prev.map(msg => 
@@ -732,13 +844,15 @@ const ChatScreen = () => {
       ));
       Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
     }
-    setShowMessageActions(false);
   };
 
   // Thêm hàm xử lý xóa tin nhắn
   const handleDeleteMessage = async (message: Message) => {
     try {
       console.log('Attempting to delete message:', message.messageId);
+      
+      // Close the message actions menu immediately
+      setShowMessageActions(false);
       
       // Cập nhật UI ngay lập tức
       setMessages(prev => prev.filter(msg => msg.messageId !== message.messageId));
@@ -768,7 +882,6 @@ const ChatScreen = () => {
       setMessages(prev => [...prev, message]);
       Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
     }
-    setShowMessageActions(false);
   };
 
   // Add useEffect to load friends when forward modal is opened
@@ -903,6 +1016,7 @@ const ChatScreen = () => {
           fileName: fileNameWithExt,
           fileType,
           isImage: ['jpg', 'jpeg', 'png', 'gif'].includes(fileType),
+          isVideo: ['mp4', 'mov', 'avi'].includes(fileType),
           isCompressed: ['zip', 'rar', '7z'].includes(fileType),
           isDocument: ['doc', 'docx', 'pdf', 'txt'].includes(fileType)
         };
@@ -912,6 +1026,7 @@ const ChatScreen = () => {
           fileName: 'Unknown file',
           fileType: '',
           isImage: false,
+          isVideo: false,
           isCompressed: false,
           isDocument: false
         };
@@ -925,6 +1040,9 @@ const ChatScreen = () => {
         const ext = fileInfo.fileType.toLowerCase();
         if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
           return "image";
+        }
+        if (['mp4', 'mov', 'avi'].includes(ext)) {
+          return "videocam";
         }
         if (['pdf'].includes(ext)) {
           return "document-text";
@@ -947,6 +1065,7 @@ const ChatScreen = () => {
       const getFileColor = () => {
         const ext = fileInfo.fileType.toLowerCase();
         if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) return '#FF9500';
+        if (['mp4', 'mov', 'avi'].includes(ext)) return '#FF2D55';
         if (['pdf'].includes(ext)) return '#FF3B30';
         if (['doc', 'docx'].includes(ext)) return '#007AFF';
         if (['xls', 'xlsx'].includes(ext)) return '#34C759';
@@ -968,6 +1087,12 @@ const ChatScreen = () => {
         }
       };
 
+      const handlePlayVideo = () => {
+        if (item.content) {
+          Linking.openURL(item.content);
+        }
+      };
+
       return (
         <View style={styles.fileContainer}>
           <TouchableOpacity 
@@ -976,7 +1101,7 @@ const ChatScreen = () => {
               { backgroundColor: isMe ? '#E3F2FD' : '#FFFFFF' },
               styles.elevation
             ]}
-            onPress={handlePreview}
+            onPress={fileInfo.isVideo ? handlePlayVideo : handlePreview}
           >
             <View style={styles.fileIconWrapper}>
               <View style={[styles.fileIconContainer, { backgroundColor: getFileColor() }]}>
@@ -1002,26 +1127,41 @@ const ChatScreen = () => {
               </Text>
             </View>
             <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: '#1976D2' }]}
-                onPress={handlePreview}
-              >
-                <Ionicons 
-                  name="eye-outline" 
-                  size={16} 
-                  color="#FFFFFF"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
-                onPress={handleDownload}
-              >
-                <Ionicons 
-                  name="cloud-download" 
-                  size={16} 
-                  color="#FFFFFF"
-                />
-              </TouchableOpacity>
+              {fileInfo.isVideo ? (
+                <TouchableOpacity 
+                  style={[styles.actionButton, { backgroundColor: '#FF2D55' }]}
+                  onPress={handlePlayVideo}
+                >
+                  <Ionicons 
+                    name="play" 
+                    size={16} 
+                    color="#FFFFFF"
+                  />
+                </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, { backgroundColor: '#1976D2' }]}
+                    onPress={handlePreview}
+                  >
+                    <Ionicons 
+                      name="eye-outline" 
+                      size={16} 
+                      color="#FFFFFF"
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
+                    onPress={handleDownload}
+                  >
+                    <Ionicons 
+                      name="cloud-download" 
+                      size={16} 
+                      color="#FFFFFF"
+                    />
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -1247,6 +1387,13 @@ const ChatScreen = () => {
                 disabled={uploading}
               >
                 <Ionicons name="image-outline" size={24} color="#666" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.inputIcon}
+                onPress={handleVideoPick}
+                disabled={uploading}
+              >
+                <Ionicons name="videocam-outline" size={24} color="#666" />
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.inputIcon}

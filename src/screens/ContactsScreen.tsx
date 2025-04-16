@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ScrollView, ActivityIndicator, Alert, Modal } from 'react-native';
 import { Text, Avatar, Tab, TabView } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendRequest, withdrawFriendRequest, getFriends } from '../services/api';
+import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendRequest, withdrawFriendRequest, getFriends, unfriend } from '../services/api';
 import type { FriendRequest as BaseFriendRequest } from '../services/api';
 import { socketService } from '../services/socket';
 
@@ -85,6 +85,9 @@ const ContactsScreen = () => {
   const [contacts, setContacts] = useState<ContactGroup[]>([]);
   const [totalFriends, setTotalFriends] = useState(0);
   const [recentlyActive, setRecentlyActive] = useState(0);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [showOptionsModal, setShowOptionsModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     // Try to load from cache first
@@ -381,11 +384,11 @@ const ContactsScreen = () => {
         {item.items.map((contact: Contact) => (
           <TouchableOpacity key={contact.email} style={styles.contactItem}>
             <View style={styles.avatarContainer}>
-            <Avatar
-              rounded
-              source={{ uri: contact.avatar }}
-              size={50}
-            />
+              <Avatar
+                rounded
+                source={{ uri: contact.avatar }}
+                size={50}
+              />
               {contact.online && <View style={styles.onlineIndicator} />}
             </View>
             <Text style={styles.contactName}>{contact.fullName}</Text>
@@ -395,6 +398,15 @@ const ContactsScreen = () => {
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton}>
                 <Ionicons name="videocam-outline" size={24} color="#666" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => {
+                  setSelectedContact(contact);
+                  setShowOptionsModal(true);
+                }}
+              >
+                <Ionicons name="ellipsis-vertical" size={24} color="#666" />
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -616,6 +628,52 @@ const ContactsScreen = () => {
     updates();
   };
 
+  const handleUnfriend = async (email: string) => {
+    Alert.alert(
+      'Xóa bạn bè',
+      'Bạn có chắc chắn muốn xóa người này khỏi danh sách bạn bè?',
+      [
+        {
+          text: 'Hủy',
+          style: 'cancel',
+          onPress: () => setShowOptionsModal(false)
+        },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: async () => {
+            setShowOptionsModal(false); // Đóng modal ngay lập tức
+            setIsLoading(true); // Bắt đầu loading
+            try {
+              const response = await unfriend(email);
+              if (response.success) {
+                // Cập nhật UI ngay lập tức
+                setContacts(prev => {
+                  const updatedGroups = prev.map(group => ({
+                    ...group,
+                    items: group.items.filter(contact => contact.email !== email)
+                  })).filter(group => group.items.length > 0);
+                  
+                  // Cập nhật cache
+                  global.cachedContacts = updatedGroups;
+                  return updatedGroups;
+                });
+                setTotalFriends(prev => prev - 1);
+                Alert.alert('Thành công', 'Đã xóa bạn bè');
+              } else {
+                Alert.alert('Lỗi', response.message || 'Không thể xóa bạn bè');
+              }
+            } catch (error: any) {
+              Alert.alert('Lỗi', error.message || 'Không thể kết nối đến server');
+            } finally {
+              setIsLoading(false); // Kết thúc loading
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
@@ -832,6 +890,37 @@ const ContactsScreen = () => {
           <Text style={[styles.navText, activeTab === 'profile' && styles.activeNavText]}>Cá nhân</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Options Modal */}
+      <Modal
+        visible={showOptionsModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowOptionsModal(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsModal(false)}
+        >
+          <View style={styles.modalContent}>
+            <TouchableOpacity 
+              style={styles.modalOption}
+              onPress={() => selectedContact && handleUnfriend(selectedContact.email)}
+            >
+              <Ionicons name="person-remove" size={24} color="red" />
+              <Text style={styles.modalOptionTextDanger}>Xóa bạn bè</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Loading Indicator */}
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#0068ff" />
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1136,9 +1225,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 999,
+    zIndex: 9999
   },
   friendStatusButton: {
     backgroundColor: '#e8e8e8',
@@ -1177,6 +1267,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  modalOptionTextDanger: {
+    color: 'red',
+    fontSize: 16,
+    marginLeft: 15
+  }
 });
 
 export default ContactsScreen; 
