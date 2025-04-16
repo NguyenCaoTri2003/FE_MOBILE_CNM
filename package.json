@@ -19,6 +19,7 @@
     "axios": "1.6.7",
     "date-fns": "^2.30.0",
     "expo": "50.0.6",
+    "expo-clipboard": "^7.0.1",
     "expo-document-picker": "^13.0.3",
     "expo-file-system": "^16.0.9",
     "expo-image-picker": "14.7.1",

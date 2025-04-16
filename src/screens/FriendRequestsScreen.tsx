@@ -171,8 +171,9 @@ const FriendRequestsScreen = () => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={20} color="#0068ff" />
+          <Ionicons name="arrow-back" size={24} color="#0068ff" />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Lời mời kết bạn</Text>
       </View>
       <Tab
         value={index}
@@ -223,13 +224,19 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    padding: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
   backButton: {
-    padding: 4,
+    padding: 8,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+    marginLeft: 16,
   },
   tabContent: {
     width: '100%',

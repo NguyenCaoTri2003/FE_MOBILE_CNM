@@ -9,6 +9,11 @@ import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendReque
 import type { FriendRequest as BaseFriendRequest } from '../services/api';
 import { socketService } from '../services/socket';
 
+// Add type definitions at the top of the file
+declare global {
+  var cachedContacts: ContactGroup[];
+}
+
 interface Contact {
   email: string;
   fullName: string;
@@ -48,6 +53,12 @@ interface Friend {
   online?: boolean;
 }
 
+interface FriendListUpdateData {
+  type: 'newFriend' | 'unfriend';
+  friend?: Friend;
+  email?: string;
+}
+
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -76,12 +87,16 @@ const ContactsScreen = () => {
   const [recentlyActive, setRecentlyActive] = useState(0);
 
   useEffect(() => {
+    // Try to load from cache first
+    const cachedContacts = global.cachedContacts;
+    if (cachedContacts) {
+      setContacts(cachedContacts);
+      setTotalFriends(cachedContacts.reduce((sum, group) => sum + group.items.length, 0));
+    }
+
     // Load initial data without loading states
     const loadInitialData = async () => {
       try {
-        // Emit socket event to get initial friends list
-        socketService.emit('getFriendsList', {});
-
         // Load friend requests and friends data in parallel
         const [friendRequestsResponse, friendsResponse] = await Promise.all([
           getFriendRequests(),
@@ -98,11 +113,23 @@ const ContactsScreen = () => {
 
         if (friendsResponse.success && friendsResponse.data) {
           const friends = friendsResponse.data;
-          const groupedFriends = groupFriendsByFirstLetter(friends);
-          setContacts(groupedFriends);
+          // Set initial contacts without online status
+          const initialGroups = groupFriendsByFirstLetter(friends.map(friend => ({
+            ...friend,
+            online: false // Default to offline initially
+          })));
+
+          // Cache the contacts data globally
+          global.cachedContacts = initialGroups;
+          
+          setContacts(initialGroups);
           setTotalFriends(friends.length);
-          setRecentlyActive(friends.filter((friend: Friend) => friend.online).length);
           setFriendList(new Set(friends.map((friend: Friend) => friend.email)));
+
+          // Emit socket event to get online status updates after a small delay
+          setTimeout(() => {
+            socketService.emit('getFriendsList', {});
+          }, 100);
         }
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -111,12 +138,122 @@ const ContactsScreen = () => {
 
     loadInitialData();
 
+    // Socket event listeners for real-time updates
+    const handleFriendListUpdate = (data: FriendListUpdateData) => {
+      console.log('Received friendListUpdate:', data);
+      
+      if (data.type === 'newFriend' && data.friend) {
+        const newFriend: Contact = {
+          email: data.friend.email,
+          fullName: data.friend.fullName,
+          avatar: data.friend.avatar,
+          online: data.friend.online || false
+        };
+
+        setContacts(prev => {
+          const letter = newFriend.fullName.charAt(0).toUpperCase();
+          
+          const existingGroup = prev.find(group => group.letter === letter);
+          if (existingGroup) {
+            const newGroups = prev.map(group =>
+              group.letter === letter
+                ? { ...group, items: [...group.items, newFriend] }
+                : group
+            );
+            // Update cache
+            global.cachedContacts = newGroups;
+            return newGroups;
+          } else {
+            const newGroups = [...prev, { letter, items: [newFriend] }].sort((a, b) =>
+              a.letter.localeCompare(b.letter)
+            );
+            // Update cache
+            global.cachedContacts = newGroups;
+            return newGroups;
+          }
+        });
+
+        setTotalFriends(prev => prev + 1);
+        if (newFriend.online) {
+          setRecentlyActive(prev => prev + 1);
+        }
+      } else if (data.type === 'unfriend' && data.email) {
+        const emailToRemove = data.email;
+        setContacts(prev => {
+          const updatedGroups = prev.map(group => ({
+            ...group,
+            items: group.items.filter(friend => {
+              if (friend.email === emailToRemove) {
+                if (friend.online) {
+                  setRecentlyActive(count => Math.max(0, count - 1));
+                }
+                setTotalFriends(count => Math.max(0, count - 1));
+                return false;
+              }
+              return true;
+            })
+          })).filter(group => group.items.length > 0);
+          
+          // Update cache
+          global.cachedContacts = updatedGroups;
+          return updatedGroups;
+        });
+      }
+    };
+
+    const handleFriendStatusUpdate = (data: { email: string, online: boolean }) => {
+      setContacts(prev => {
+        let foundUser = false;
+        const updatedGroups = prev.map(group => ({
+          ...group,
+          items: group.items.map(item => {
+            if (item.email === data.email) {
+              foundUser = true;
+              if (item.online !== data.online) {
+                if (data.online) {
+                  setRecentlyActive(prev => prev + 1);
+                } else {
+                  setRecentlyActive(prev => Math.max(0, prev - 1));
+                }
+              }
+              return { ...item, online: data.online };
+            }
+            return item;
+          })
+        }));
+
+        // Update cache
+        global.cachedContacts = updatedGroups;
+        return updatedGroups;
+      });
+    };
+
+    // Subscribe to socket events
+    socketService.on('friendListUpdate', handleFriendListUpdate);
+    socketService.on('friendStatusUpdate', handleFriendStatusUpdate);
+
+    // Emit initial online status after a small delay
+    setTimeout(() => {
+      socketService.emit('userStatus', { status: 'online' });
+    }, 100);
+
     const unsubscribe = navigation.addListener('focus', () => {
       setActiveTab('contacts');
+      // Load from cache first
+      if (global.cachedContacts) {
+        setContacts(global.cachedContacts);
+        setTotalFriends(global.cachedContacts.reduce((sum, group) => sum + group.items.length, 0));
+      }
       loadInitialData();
     });
 
-    return unsubscribe;
+    // Cleanup
+    return () => {
+      socketService.off('friendListUpdate', handleFriendListUpdate);
+      socketService.off('friendStatusUpdate', handleFriendStatusUpdate);
+      socketService.emit('userStatus', { status: 'offline' });
+      unsubscribe();
+    };
   }, [navigation]);
 
   const debouncedSearch = useCallback(

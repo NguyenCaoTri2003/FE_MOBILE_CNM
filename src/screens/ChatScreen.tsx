@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking } from 'react-native';
+import { View, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal } from 'react-native';
 import { Text, Avatar } from '@rneui/themed';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { getMessages, sendMessage, markMessageAsRead, Message, uploadFile } from '../services/api';
+import { getMessages, sendMessage, markMessageAsRead, uploadFile, sendReaction, recallMessage, deleteMessage, getFriends } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
+import type { Message, Reaction, Friend } from '../services/api';
+import * as Clipboard from 'expo-clipboard';
 
 // API base URL
 const BASE_URL = 'http://192.168.110.77:5000/api';
@@ -55,7 +58,18 @@ const EMOJIS = [
   '⭐', '🌟', '✨', '⚡', '☄️', '💥', '🔥', '🌪️', '🌈', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️',
   
   // Đối tượng
-  '💎', '💍', '🔔', '🎵', '🎶', '🚗', '✈️', '🚀', '⌚', '📱', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🕹️', '💡', '🔦'
+  '💎', '💍', '🔔', '🎵', '🎶', '🚗', '✈️', '🚀', '⌚', '📱', '💻', '⌨️', '🖨️', '��️', '💡', '🔦'
+];
+
+const REACTIONS = [
+  { emoji: '❤️', name: 'heart', type: 'reaction' },
+  { emoji: '👍', name: 'thumbsup', type: 'reaction' },
+  { emoji: '😄', name: 'haha', type: 'reaction' },
+  { emoji: '😮', name: 'wow', type: 'reaction' },
+  { emoji: '😢', name: 'sad', type: 'reaction' },
+  { emoji: '😠', name: 'angry', type: 'reaction' },
+  { emoji: '📋', name: 'copy', type: 'action' },
+  { emoji: '↪️', name: 'forward', type: 'action' }
 ];
 
 const ChatScreen = () => {
@@ -72,6 +86,13 @@ const ChatScreen = () => {
   const [hasInteracted, setHasInteracted] = useState(false);
   const [showEmojis, setShowEmojis] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [showReactions, setShowReactions] = useState(false);
+  const [selectedMessageForActions, setSelectedMessageForActions] = useState<Message | null>(null);
+  const [showMessageActions, setShowMessageActions] = useState(false);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Add useEffect to monitor isTyping changes
   useEffect(() => {
@@ -98,10 +119,15 @@ const ChatScreen = () => {
 
         // Initialize socket connection
         const socketUrl = 'http://192.168.110.77:5000';
-        console.log('Connecting to socket server:', socketUrl);
+        console.log('Initializing socket connection to:', socketUrl);
+        
+        if (socket.current) {
+          console.log('Disconnecting existing socket');
+          socket.current.disconnect();
+        }
         
         socket.current = io(socketUrl, {
-          transports: ['polling', 'websocket'],
+          transports: ['websocket', 'polling'],
           upgrade: true,
           rememberUpgrade: true,
           auth: {
@@ -116,7 +142,7 @@ const ChatScreen = () => {
 
         // Log socket connection status
         socket.current.on('connect', () => {
-          console.log('Socket connected successfully');
+          console.log('Socket connected successfully with ID:', socket.current?.id);
         });
 
         socket.current.on('connect_error', (error: Error) => {
@@ -199,8 +225,78 @@ const ChatScreen = () => {
           }
         });
 
+        socket.current.on('messageReaction', (data: { messageId: string, reaction: string, senderEmail: string }) => {
+          console.log('Received messageReaction event:', data);
+          setMessages(prevMessages => {
+            console.log('Updating messages for reaction:', data.messageId);
+            return prevMessages.map(msg => {
+              if (msg.messageId === data.messageId) {
+                console.log('Found message to add reaction:', msg.messageId);
+                return {
+                  ...msg,
+                  reactions: [...(msg.reactions || []), {
+                    messageId: data.messageId,
+                    reaction: data.reaction,
+                    senderEmail: data.senderEmail
+                  }]
+                };
+              }
+              return msg;
+            });
+          });
+        });
+
+        socket.current.on('messageReactionConfirmed', (data: { success: boolean, messageId: string, reaction: string, error?: string }) => {
+          console.log('Message reaction confirmation:', data);
+          if (!data.success) {
+            Alert.alert('Lỗi', 'Không thể thả cảm xúc. Vui lòng thử lại.');
+          }
+        });
+
+        socket.current.on('messageRecalled', (data: { messageId: string, senderEmail: string }) => {
+          console.log('Received messageRecalled event:', data);
+          setMessages(prevMessages => {
+            console.log('Updating messages for recall:', data.messageId);
+            return prevMessages.map(msg => {
+              if (msg.messageId === data.messageId) {
+                console.log('Found message to recall:', msg.messageId);
+                return {
+                  ...msg,
+                  isRecalled: true,
+                  content: 'Tin nhắn đã được thu hồi'
+                };
+              }
+              return msg;
+            });
+          });
+        });
+
+        socket.current.on('messageDeleted', (data: { messageId: string }) => {
+          console.log('Received messageDeleted event:', data);
+          setMessages(prevMessages => {
+            console.log('Removing deleted message:', data.messageId);
+            return prevMessages.filter(msg => msg.messageId !== data.messageId);
+          });
+        });
+
+        // Confirmation handlers
+        socket.current.on('messageRecallConfirmed', (data: { success: boolean, messageId: string, error?: string }) => {
+          console.log('Message recall confirmation:', data);
+          if (!data.success) {
+            Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+          }
+        });
+
+        socket.current.on('messageDeleteConfirmed', (data: { success: boolean, messageId: string, error?: string }) => {
+          console.log('Message delete confirmation:', data);
+          if (!data.success) {
+            Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
+          }
+        });
+
         return () => {
           if (socket.current) {
+            console.log('Cleaning up socket connection');
             socket.current.disconnect();
           }
           if (typingTimeoutRef.current) {
@@ -233,8 +329,7 @@ const ChatScreen = () => {
             if (socket.current) {
               socket.current.emit('messageRead', {
                 messageId: msg.messageId,
-                senderEmail: msg.senderEmail,
-                receiverEmail: receiverEmail
+                senderEmail: msg.senderEmail
               });
             }
           });
@@ -445,11 +540,338 @@ const ChatScreen = () => {
     }
   };
 
+  const handleImagePick = async () => {
+    try {
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant permission to access your photos');
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedImage = result.assets[0];
+        setUploading(true);
+
+        // Create form data
+        const formData = new FormData();
+        formData.append('file', {
+          uri: selectedImage.uri,
+          type: 'image/jpeg',
+          name: 'image.jpg',
+        } as any);
+
+        try {
+          // Upload image
+          const uploadResponse = await uploadFile(formData);
+          
+          if (uploadResponse.success) {
+            // Send message with image URL
+            const messageResponse = await sendMessage(
+              receiverEmail,
+              uploadResponse.data.url,
+              'image',
+              {
+                fileName: uploadResponse.data.originalname,
+                fileSize: uploadResponse.data.size,
+                fileType: uploadResponse.data.mimetype
+              }
+            );
+
+            if (messageResponse.success) {
+              setMessages(prev => {
+                const messageExists = prev.some(msg => msg.messageId === messageResponse.data.messageId);
+                if (!messageExists) {
+                  return [...prev, messageResponse.data];
+                }
+                return prev;
+              });
+
+              // Emit socket event
+              if (socket.current) {
+                socket.current.emit('newMessage', {
+                  receiverEmail,
+                  message: messageResponse.data
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error uploading image:', error);
+          Alert.alert('Error', 'Failed to upload image. Please try again.');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleReaction = async (message: Message, reaction: string) => {
+    try {
+      console.log('Sending reaction:', { messageId: message.messageId, reaction });
+      
+      // Cập nhật UI ngay lập tức
+      setMessages(prev => prev.map(msg => 
+        msg.messageId === message.messageId 
+          ? {
+              ...msg,
+              reactions: [...(msg.reactions || []), {
+                messageId: msg.messageId,
+                reaction,
+                senderEmail: socket.current?.user?.email || ''
+              }]
+            }
+          : msg
+      ));
+
+      // Emit socket event
+      if (socket.current?.connected) {
+        console.log('Emitting messageReaction event');
+        socket.current.emit('messageReaction', {
+          messageId: message.messageId,
+          reaction,
+          receiverEmail
+        });
+      } else {
+        console.error('Socket not connected for reaction');
+      }
+
+      // Gọi API để lưu reaction
+      const response = await sendReaction(message.messageId, reaction);
+      if (!response.success) {
+        console.error('API call failed for reaction');
+        // Hoàn tác UI nếu API thất bại
+        setMessages(prev => prev.map(msg => 
+          msg.messageId === message.messageId 
+            ? {
+                ...msg,
+                reactions: msg.reactions?.filter(r => 
+                  !(r.messageId === message.messageId && 
+                    r.reaction === reaction && 
+                    r.senderEmail === socket.current?.user?.email)
+                )
+              }
+            : msg
+        ));
+        Alert.alert('Lỗi', 'Không thể thả cảm xúc. Vui lòng thử lại.');
+      }
+    } catch (error) {
+      console.error('Error in handleReaction:', error);
+      // Hoàn tác UI nếu có lỗi
+      setMessages(prev => prev.map(msg => 
+        msg.messageId === message.messageId 
+          ? {
+              ...msg,
+              reactions: msg.reactions?.filter(r => 
+                !(r.messageId === message.messageId && 
+                  r.reaction === reaction && 
+                  r.senderEmail === socket.current?.user?.email)
+              )
+            }
+          : msg
+      ));
+      Alert.alert('Lỗi', 'Không thể thả cảm xúc. Vui lòng thử lại.');
+    }
+    setShowReactions(false);
+  };
+
+  // Thêm hàm xử lý thu hồi tin nhắn
+  const handleRecallMessage = async (message: Message) => {
+    try {
+      console.log('Attempting to recall message:', message.messageId);
+      
+      // Cập nhật UI ngay lập tức
+      setMessages(prev => prev.map(msg => 
+        msg.messageId === message.messageId 
+          ? { ...msg, isRecalled: true, content: 'Tin nhắn đã được thu hồi' }
+          : msg
+      ));
+
+      // Emit socket event
+      if (socket.current?.connected) {
+        console.log('Emitting messageRecalled event');
+        socket.current.emit('messageRecalled', {
+          messageId: message.messageId,
+          receiverEmail,
+          senderEmail: message.senderEmail
+        });
+      } else {
+        console.error('Socket not connected for message recall');
+      }
+
+      // Gọi API để lưu trạng thái
+      const response = await recallMessage(message.messageId);
+      if (!response.success) {
+        console.error('API call failed for message recall');
+        // Hoàn tác UI nếu API thất bại
+        setMessages(prev => prev.map(msg => 
+          msg.messageId === message.messageId 
+            ? { ...msg, isRecalled: false, content: message.content }
+            : msg
+        ));
+        Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+      }
+    } catch (error) {
+      console.error('Error in handleRecallMessage:', error);
+      // Hoàn tác UI nếu có lỗi
+      setMessages(prev => prev.map(msg => 
+        msg.messageId === message.messageId 
+          ? { ...msg, isRecalled: false, content: message.content }
+          : msg
+      ));
+      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+    }
+    setShowMessageActions(false);
+  };
+
+  // Thêm hàm xử lý xóa tin nhắn
+  const handleDeleteMessage = async (message: Message) => {
+    try {
+      console.log('Attempting to delete message:', message.messageId);
+      
+      // Cập nhật UI ngay lập tức
+      setMessages(prev => prev.filter(msg => msg.messageId !== message.messageId));
+
+      // Emit socket event
+      if (socket.current?.connected) {
+        console.log('Emitting messageDeleted event');
+        socket.current.emit('messageDeleted', {
+          messageId: message.messageId,
+          receiverEmail
+        });
+      } else {
+        console.error('Socket not connected for message delete');
+      }
+
+      // Gọi API để xóa tin nhắn
+      const response = await deleteMessage(message.messageId);
+      if (!response.success) {
+        console.error('API call failed for message delete');
+        // Hoàn tác UI nếu API thất bại
+        setMessages(prev => [...prev, message]);
+        Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
+      }
+    } catch (error) {
+      console.error('Error in handleDeleteMessage:', error);
+      // Hoàn tác UI nếu có lỗi
+      setMessages(prev => [...prev, message]);
+      Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
+    }
+    setShowMessageActions(false);
+  };
+
+  // Add useEffect to load friends when forward modal is opened
+  useEffect(() => {
+    if (showForwardModal) {
+      loadFriends();
+    }
+  }, [showForwardModal]);
+
+  const loadFriends = async () => {
+    try {
+      const response = await getFriends();
+      if (response.success) {
+        setFriends(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading friends:', error);
+    }
+  };
+
+  const handleForwardMessage = async (message: Message, receiverEmail: string) => {
+    try {
+      // Forward the message to the selected receiver
+      const response = await sendMessage(
+        receiverEmail,
+        message.content,
+        message.type,
+        message.metadata ? {
+          fileName: message.metadata.fileName || '',
+          fileSize: message.metadata.fileSize || 0,
+          fileType: message.metadata.fileType || ''
+        } : undefined
+      );
+
+      if (response.success) {
+        // Emit socket event for the forwarded message
+        if (socket.current) {
+          socket.current.emit('newMessage', {
+            receiverEmail,
+            message: response.data
+          });
+        }
+        Alert.alert('Thành công', 'Tin nhắn đã được chuyển tiếp');
+      }
+    } catch (error) {
+      console.error('Error forwarding message:', error);
+      Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn. Vui lòng thử lại.');
+    }
+    setShowForwardModal(false);
+    setShowMessageActions(false);
+  };
+
+  const handleCopyText = (message: Message) => {
+    if (message.content) {
+      // Copy text to clipboard
+      const textToCopy = message.isRecalled ? 'Tin nhắn đã được thu hồi' : message.content;
+      Clipboard.setString(textToCopy);
+      Alert.alert('Thành công', 'Đã sao chép văn bản');
+    }
+    setShowReactions(false);
+  };
+
+  const handleForwardFromReaction = (message: Message) => {
+    setSelectedMessageForActions(message);
+    setShowReactions(false);
+    setShowForwardModal(true);
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     const isMe = item.senderEmail !== receiverEmail;
 
+    // Hiển thị tin nhắn đã thu hồi
+    if (item.isRecalled) {
+      return (
+        <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
+          {!isMe && (
+            <Avatar
+              rounded
+              source={{ uri: avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+              size={30}
+              containerStyle={styles.avatar}
+            />
+          )}
+          <View style={[styles.messageBubble, styles.recalledBubble]}>
+            <Text style={styles.recalledText}>Tin nhắn đã được thu hồi</Text>
+          </View>
+        </View>
+      );
+    }
+
     const isFileMessage = (content: string) => {
-      return content.includes('uploads3cnm.s3.amazonaws.com');
+      // Kiểm tra nếu là URL S3 và không phải là hình ảnh
+      return content.includes('uploads3cnm.s3.amazonaws.com') && !isImageMessage(item);
+    };
+
+    const isImageMessage = (message: Message) => {
+      // Kiểm tra nếu là tin nhắn hình ảnh hoặc file có định dạng hình ảnh
+      if (message.type === 'image') return true;
+      if (message.metadata?.fileType?.startsWith('image/')) return true;
+      // Kiểm tra đuôi file trong URL
+      const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+      const url = message.content.toLowerCase();
+      return imageExtensions.some(ext => url.endsWith(`.${ext}`));
     };
 
     const getFileInfo = (url: string) => {
@@ -606,46 +1028,95 @@ const ChatScreen = () => {
       );
     };
 
-    return (
-      <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-        {!isMe && (
-          <Avatar
-            rounded
-            source={{ uri: avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
-            size={30}
-            containerStyle={styles.avatar}
+    const renderImageContent = () => {
+      return (
+        <TouchableOpacity 
+          onPress={() => {
+            if (item.content) {
+              Linking.openURL(item.content);
+            }
+          }}
+          style={[
+            styles.imageContainer,
+            isMe ? styles.myImageContainer : styles.theirImageContainer
+          ]}
+        >
+          <Image
+            source={{ uri: item.content }}
+            style={styles.messageImage}
+            resizeMode="cover"
           />
-        )}
-        <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
-          {isFileMessage(item.content) ? (
-            <TouchableOpacity 
-              style={styles.fileContainer}
-              onPress={() => {
-                if (item.content) {
-                  Linking.openURL(item.content);
-                }
-              }}
-            >
-              {renderFileContent()}
-            </TouchableOpacity>
-          ) : (
-            <Text style={[styles.messageText, !isMe && { color: '#000' }]}>{item.content}</Text>
-          )}
-          <View style={styles.messageFooter}>
-            <Text style={[styles.messageTime, !isMe && { color: 'rgba(0, 0, 0, 0.5)' }]}>
-              {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: vi })}
+        </TouchableOpacity>
+      );
+    };
+
+    const renderReactions = () => {
+      if (!item.reactions || item.reactions.length === 0) return null;
+      
+      return (
+        <View style={[
+          styles.reactionsContainer,
+          isMe ? styles.myReactionsContainer : styles.theirReactionsContainer
+        ]}>
+          {item.reactions.map((reaction, index: number) => (
+            <Text key={`${reaction.messageId}-${index}`} style={styles.reactionEmoji}>
+              {reaction.reaction}
             </Text>
-            {isMe && (
-              <Text style={[
-                styles.messageStatus,
-                item.status === 'read' ? styles.messageStatusRead : styles.messageStatusSent
-              ]}>
-                {item.status === 'read' ? '✓✓' : '✓'}
-              </Text>
+          ))}
+        </View>
+      );
+    };
+
+    return (
+      <TouchableOpacity
+        onLongPress={() => {
+          if (isMe) {
+            // Nếu là tin nhắn của mình, hiện menu thu hồi/xóa
+            setSelectedMessageForActions(item);
+            setShowMessageActions(true);
+          } else {
+            // Nếu là tin nhắn của người khác, hiện menu reaction
+            setSelectedMessage(item);
+            setShowReactions(true);
+          }
+        }}
+        delayLongPress={200}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
+          {!isMe && (
+            <Avatar
+              rounded
+              source={{ uri: avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+              size={30}
+              containerStyle={styles.avatar}
+            />
+          )}
+          <View style={[styles.messageBubble, isMe ? styles.myBubble : styles.theirBubble]}>
+            {isImageMessage(item) ? (
+              renderImageContent()
+            ) : isFileMessage(item.content) ? (
+              renderFileContent()
+            ) : (
+              <Text style={[styles.messageText, !isMe && { color: '#000' }]}>{item.content}</Text>
             )}
+            {renderReactions()}
+            <View style={styles.messageFooter}>
+              <Text style={[styles.messageTime, !isMe && { color: 'rgba(0, 0, 0, 0.5)' }]}>
+                {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: vi })}
+              </Text>
+              {isMe && (
+                <Text style={[
+                  styles.messageStatus,
+                  item.status === 'read' ? styles.messageStatusRead : styles.messageStatusSent
+                ]}>
+                  {item.status === 'read' ? '✓✓' : '✓'}
+                </Text>
+              )}
+            </View>
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -770,7 +1241,11 @@ const ChatScreen = () => {
               <TouchableOpacity style={styles.inputIcon}>
                 <Ionicons name="mic-outline" size={24} color="#666" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.inputIcon}>
+              <TouchableOpacity 
+                style={styles.inputIcon}
+                onPress={handleImagePick}
+                disabled={uploading}
+              >
                 <Ionicons name="image-outline" size={24} color="#666" />
               </TouchableOpacity>
               <TouchableOpacity 
@@ -792,6 +1267,137 @@ const ChatScreen = () => {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Reaction Modal */}
+      <Modal
+        visible={showReactions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReactions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowReactions(false)}
+        >
+          <View style={styles.reactionMenu}>
+            {REACTIONS.map((reaction, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.reactionButton}
+                onPress={() => {
+                  if (!selectedMessage) return;
+                  
+                  if (reaction.type === 'reaction') {
+                    handleReaction(selectedMessage, reaction.emoji);
+                  } else if (reaction.type === 'action') {
+                    if (reaction.name === 'copy') {
+                      handleCopyText(selectedMessage);
+                    } else if (reaction.name === 'forward') {
+                      handleForwardFromReaction(selectedMessage);
+                    }
+                  }
+                }}
+              >
+                <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Message Actions Modal */}
+      <Modal
+        visible={showMessageActions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMessageActions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMessageActions(false)}
+        >
+          <View style={styles.messageActionsMenu}>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => selectedMessageForActions && handleRecallMessage(selectedMessageForActions)}
+            >
+              <Ionicons name="refresh-outline" size={24} color="#0068ff" />
+              <Text style={styles.messageActionText}>Thu hồi</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => selectedMessageForActions && handleDeleteMessage(selectedMessageForActions)}
+            >
+              <Ionicons name="trash-outline" size={24} color="#ff3b30" />
+              <Text style={[styles.messageActionText, { color: '#ff3b30' }]}>Xóa</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => {
+                setShowMessageActions(false);
+                setShowForwardModal(true);
+              }}
+            >
+              <Ionicons name="arrow-redo-outline" size={24} color="#34c759" />
+              <Text style={[styles.messageActionText, { color: '#34c759' }]}>Chuyển tiếp</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Forward Modal */}
+      <Modal
+        visible={showForwardModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowForwardModal(false)}
+      >
+        <View style={styles.forwardModalContainer}>
+          <View style={styles.forwardModalContent}>
+            <View style={styles.forwardModalHeader}>
+              <Text style={styles.forwardModalTitle}>Chuyển tiếp tin nhắn</Text>
+              <TouchableOpacity
+                onPress={() => setShowForwardModal(false)}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Tìm kiếm bạn bè"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
+
+            <FlatList
+              data={friends.filter(friend => 
+                friend.fullName.toLowerCase().includes(searchQuery.toLowerCase())
+              )}
+              keyExtractor={(item) => item.email}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.friendItem}
+                  onPress={() => selectedMessageForActions && handleForwardMessage(selectedMessageForActions, item.email)}
+                >
+                  <Avatar
+                    rounded
+                    source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+                    size={40}
+                  />
+                  <Text style={styles.friendName}>{item.fullName}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -988,14 +1594,24 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   imageContainer: {
-    width: 200,
     borderRadius: 10,
     overflow: 'hidden',
+    maxWidth: '100%',
   },
-  imagePreview: {
-    width: '100%',
-    aspectRatio: 1,
+  myImageContainer: {
+    alignSelf: 'flex-end',
+  },
+  theirImageContainer: {
+    alignSelf: 'flex-start',
+  },
+  messageImage: {
+    width: 200,
+    height: 200,
     borderRadius: 10,
+  },
+  imageBubble: {
+    padding: 2,
+    backgroundColor: 'transparent',
   },
   fileContainer: {
     maxWidth: '85%',
@@ -1056,6 +1672,141 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionMenu: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 30,
+    padding: 8,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    flexWrap: 'wrap',
+    maxWidth: '80%',
+    justifyContent: 'center',
+  },
+  reactionButton: {
+    padding: 8,
+    marginHorizontal: 4,
+  },
+  reactionEmoji: {
+    fontSize: 20,
+    marginHorizontal: 2,
+  },
+  reactionsContainer: {
+    flexDirection: 'row',
+    position: 'absolute',
+    bottom: -15,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    zIndex: 1,
+  },
+  myReactionsContainer: {
+    left: 10,
+  },
+  theirReactionsContainer: {
+    right: 10,
+  },
+  recalledBubble: {
+    backgroundColor: '#f0f0f0',
+    opacity: 0.8,
+  },
+  recalledText: {
+    color: '#666',
+    fontStyle: 'italic',
+    fontSize: 14,
+  },
+  messageActionsMenu: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    width: '80%',
+  },
+  messageActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  messageActionText: {
+    marginLeft: 15,
+    fontSize: 16,
+    color: '#0068ff',
+  },
+  forwardModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  forwardModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '80%',
+    padding: 20,
+  },
+  forwardModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  forwardModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginBottom: 15,
+  },
+  searchIcon: {
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 16,
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  friendName: {
+    marginLeft: 15,
+    fontSize: 16,
+    color: '#333',
   },
 });
 

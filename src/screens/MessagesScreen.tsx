@@ -5,7 +5,12 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { getFriends } from '../services/api';
+import { getFriends, getMessages, Message } from '../services/api';
+
+// Add type definitions at the top of the file
+declare global {
+  var cachedFriends: Friend[];
+}
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -13,73 +18,197 @@ interface Friend {
   email: string;
   fullName: string;
   avatar: string;
-  phoneNumber: string;
+  online?: boolean;
+}
+
+interface Conversation {
+  email: string;
+  fullName: string;
+  avatar: string;
+  lastMessage?: Message;
 }
 
 const MessagesScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('messages');
-  const [friends, setFriends] = useState<Friend[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchFriends();
+    // Try to load from cache first
+    const cachedFriends = global.cachedFriends;
+    if (cachedFriends) {
+      setConversations(cachedFriends.map(friend => ({
+        email: friend.email,
+        fullName: friend.fullName,
+        avatar: friend.avatar
+      })));
+    }
+
+    // Then fetch fresh data in background
+    const loadFriends = async () => {
+      try {
+        const friendsResponse = await getFriends();
+        if (friendsResponse.success && friendsResponse.data) {
+          const friends = friendsResponse.data;
+          // Cache friends data globally
+          global.cachedFriends = friends;
+          
+          // Update UI with fresh data
+          setConversations(friends.map(friend => ({
+            email: friend.email,
+            fullName: friend.fullName,
+            avatar: friend.avatar
+          })));
+
+          // Fetch messages in background without blocking UI
+          setTimeout(() => {
+            fetchMessages(friends);
+          }, 100);
+        }
+      } catch (error) {
+        console.error('Error fetching friends:', error);
+      }
+    };
+
+    loadFriends();
     
     const unsubscribe = navigation.addListener('focus', () => {
       setActiveTab('messages');
-      fetchFriends();
+      if (global.cachedFriends) {
+        setConversations(global.cachedFriends.map(friend => ({
+          email: friend.email,
+          fullName: friend.fullName,
+          avatar: friend.avatar
+        })));
+      }
+      loadFriends();
     });
 
     return unsubscribe;
   }, [navigation]);
 
-  const fetchFriends = async () => {
+  // Optimize message fetching to run in chunks
+  const fetchMessages = async (friends: any[]) => {
     try {
-      const response = await getFriends();
-      if (response.success && response.data) {
-        const transformedFriends = response.data.map((friend: any) => ({
-          email: friend.email,
-          fullName: friend.fullName,
-          avatar: friend.avatar,
-          phoneNumber: friend.phoneNumber || ''
-        }));
-        setFriends(transformedFriends);
+      // Process in chunks of 5 to avoid overwhelming the API
+      const chunkSize = 5;
+      for (let i = 0; i < friends.length; i += chunkSize) {
+        const chunk = friends.slice(i, i + chunkSize);
+        const chunkPromises = chunk.map(async (friend) => {
+          try {
+            const messagesResponse = await getMessages(friend.email);
+            if (!messagesResponse.success) return null;
+
+            const theirMessages = messagesResponse.data.filter(msg => msg.senderEmail === friend.email);
+            const lastMessage = theirMessages.length > 0 ? theirMessages[theirMessages.length - 1] : undefined;
+
+            return {
+              email: friend.email,
+              fullName: friend.fullName,
+              avatar: friend.avatar,
+              lastMessage
+            };
+          } catch (error) {
+            console.error('Error fetching messages for friend:', friend.email, error);
+            return null;
+          }
+        });
+
+        const results = await Promise.all(chunkPromises);
+        const validResults = results.filter(result => result !== null) as Conversation[];
+
+        setConversations(prev => {
+          const updated = [...prev];
+          validResults.forEach(result => {
+            const index = updated.findIndex(conv => conv.email === result.email);
+            if (index !== -1) {
+              updated[index] = result;
+            }
+          });
+          return updated.sort((a, b) => {
+            if (!a.lastMessage) return 1;
+            if (!b.lastMessage) return -1;
+            return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
+          });
+        });
+
+        // Add a small delay between chunks to prevent overwhelming
+        if (i + chunkSize < friends.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
     } catch (error) {
-      console.error('Error fetching friends:', error);
+      console.error('Error fetching messages:', error);
     }
   };
 
-  const filteredFriends = friends.filter(friend => 
-    friend.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    friend.phoneNumber.includes(searchQuery)
+  const filteredConversations = conversations.filter(conversation => 
+    conversation.fullName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const renderFriendItem = ({ item }: { item: Friend }) => (
-    <TouchableOpacity 
-      style={styles.conversationItem}
-      onPress={() => navigation.navigate('Chat', { 
-        fullName: item.fullName,
-        avatar: item.avatar,
-        receiverEmail: item.email
-      })}
-    >
-      <View style={styles.avatarContainer}>
-        <Avatar
-          rounded
-          source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
-          size={50}
-        />
-      </View>
+  const formatTimeAgo = (timestamp: string) => {
+    const messageDate = new Date(timestamp);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - messageDate.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes} phút trước`;
+    } else if (diffInMinutes < 1440) { // Less than 24 hours
+      const hours = Math.floor(diffInMinutes / 60);
+      return `${hours} giờ trước`;
+    } else {
+      const days = Math.floor(diffInMinutes / 1440);
+      return `${days} ngày trước`;
+    }
+  };
 
-      <View style={styles.conversationDetails}>
-        <View style={styles.conversationHeader}>
-          <Text style={styles.conversationName} numberOfLines={1}>{item.fullName}</Text>
+  const renderConversationItem = ({ item }: { item: Conversation }) => {
+    const getMessageContent = (message?: Message) => {
+      if (!message) return '';
+      
+      // Kiểm tra nếu content là URL từ S3
+      if (message.content.includes('amazonaws.com')) {
+        if (message.metadata?.fileType?.startsWith('image')) {
+          return 'Đã gửi một ảnh';
+        }
+        return 'Đã gửi một file';
+      }
+
+      return message.content;
+    };
+
+    return (
+      <TouchableOpacity 
+        style={styles.conversationItem}
+        onPress={() => navigation.navigate('Chat', { 
+          fullName: item.fullName,
+          avatar: item.avatar,
+          receiverEmail: item.email
+        })}
+      >
+        <View style={styles.avatarContainer}>
+          <Avatar
+            rounded
+            source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+            size={50}
+          />
         </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>{item.phoneNumber}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+
+        <View style={styles.conversationDetails}>
+          <View style={styles.conversationHeader}>
+            <Text style={styles.conversationName} numberOfLines={1}>{item.fullName}</Text>
+            {item.lastMessage && (
+              <Text style={styles.timeText}>{formatTimeAgo(item.lastMessage.createdAt)}</Text>
+            )}
+          </View>
+          <Text style={[styles.lastMessage, { color: '#666' }]} numberOfLines={1}>
+            {getMessageContent(item.lastMessage)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -110,15 +239,15 @@ const MessagesScreen = () => {
         </View>
       </View>
 
-      {/* Friends List */}
+      {/* Conversations List */}
       <FlatList
-        data={filteredFriends}
-        renderItem={renderFriendItem}
+        data={filteredConversations}
+        renderItem={renderConversationItem}
         keyExtractor={(item) => item.email}
         style={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Không tìm thấy bạn bè</Text>
+            <Text style={styles.emptyText}>Không có cuộc trò chuyện nào</Text>
           </View>
         }
       />
@@ -278,7 +407,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
-    maxWidth: '80%',
+    flex: 1,
+    marginRight: 8,
+  },
+  timeText: {
+    fontSize: 12,
+    color: '#666',
   },
   lastMessage: {
     fontSize: 14,

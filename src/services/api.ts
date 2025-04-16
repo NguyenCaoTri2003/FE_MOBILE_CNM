@@ -241,9 +241,22 @@ export interface FriendRequestsResponse {
   };
 }
 
+export interface Friend {
+  email: string;
+  fullName: string;
+  avatar: string;
+  phoneNumber?: string;
+  lastMessage?: {
+    content: string;
+    timestamp: string;
+    status: 'sent' | 'delivered' | 'read';
+  };
+  online?: boolean;
+}
+
 export interface FriendsResponse {
   success: boolean;
-  data: FriendRequest[];
+  data: Friend[];
 }
 
 export const sendFriendRequest = async (receiverEmail: string) => {
@@ -291,19 +304,32 @@ export const withdrawFriendRequest = async (receiverEmail: string) => {
   }
 };
 
-export interface Message {
+export type Message = {
   messageId: string;
   senderEmail: string;
   receiverEmail: string;
   content: string;
   createdAt: string;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'sent' | 'read';
   type?: 'text' | 'image' | 'file';
   metadata?: {
-    fileName: string;
-    fileSize: number;
-    fileType: string;
+    fileName?: string;
+    fileSize?: number;
+    fileType?: string;
   };
+  reactions?: Reaction[];
+  isRecalled?: boolean;
+};
+
+export interface Reaction {
+  messageId: string;
+  reaction: string;
+  senderEmail: string;
+}
+
+export interface ReactionResponse {
+  success: boolean;
+  data: Reaction;
 }
 
 export interface ChatResponse {
@@ -443,5 +469,78 @@ export const uploadFile = async (formData: FormData) => {
         error: 'REQUEST_ERROR'
       };
     }
+  }
+};
+
+export interface LastMessage {
+  senderEmail: string;
+  receiverEmail: string;
+  content: string;
+  timestamp: string;
+  status: 'sent' | 'delivered' | 'read';
+}
+
+export interface ConversationsResponse {
+  success: boolean;
+  data: {
+    email: string;
+    fullName: string;
+    avatar: string;
+    lastMessage: LastMessage;
+  }[];
+}
+
+export const getConversations = async (): Promise<ConversationsResponse> => {
+  try {
+    const response = await api.get('/messages/conversations');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const sendReaction = async (messageId: string, reaction: string): Promise<ReactionResponse> => {
+  try {
+    const response = await api.post('/messages/reaction', {
+      messageId,
+      reaction
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error sending reaction:', error);
+    throw error.response?.data || error;
+  }
+};
+
+export const recallMessage = async (messageId: string) => {
+  try {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.put(
+      `${BASE_URL}/messages/recall/${messageId}`,
+      {},
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error recalling message:', error);
+    throw error;
+  }
+};
+
+export const deleteMessage = async (messageId: string) => {
+  try {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.delete(
+      `${BASE_URL}/messages/delete/${messageId}`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    throw error;
   }
 }; 
