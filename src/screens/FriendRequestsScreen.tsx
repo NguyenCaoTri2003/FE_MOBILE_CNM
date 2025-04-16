@@ -3,8 +3,11 @@ import { View, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Alert } f
 import { Text, Avatar, Tab, TabView } from '@rneui/themed';
 import { getFriendRequests, respondToFriendRequest, withdrawFriendRequest, FriendRequest } from '../services/api';
 import { socketService } from '../services/socket';
+import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 
 const FriendRequestsScreen = () => {
+  const navigation = useNavigation();
   const [index, setIndex] = useState(0);
   const [receivedRequests, setReceivedRequests] = useState<FriendRequest[]>([]);
   const [sentRequests, setSentRequests] = useState<FriendRequest[]>([]);
@@ -163,6 +166,14 @@ const FriendRequestsScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={20} color="#0068ff" />
+        </TouchableOpacity>
+      </View>
       <Tab
         value={index}
         onChange={setIndex}
@@ -208,6 +219,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  backButton: {
+    padding: 4,
   },
   tabContent: {
     width: '100%',

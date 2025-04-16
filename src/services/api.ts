@@ -298,6 +298,12 @@ export interface Message {
   content: string;
   createdAt: string;
   status: 'sent' | 'delivered' | 'read';
+  type?: 'text' | 'image' | 'file';
+  metadata?: {
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+  };
 }
 
 export interface ChatResponse {
@@ -342,7 +348,12 @@ export const getMessages = async (receiverEmail: string): Promise<ChatResponse> 
 export const sendMessage = async (
   receiverEmail: string,
   content: string,
-  type: 'text' | 'image' | 'file' = 'text'
+  type: 'text' | 'image' | 'file' = 'text',
+  metadata?: {
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+  }
 ): Promise<SendMessageResponse> => {
   try {
     console.log('Sending message to:', receiverEmail);
@@ -352,7 +363,8 @@ export const sendMessage = async (
     const response = await api.post('/messages/send', {
       receiverEmail,
       content,
-      type
+      type,
+      metadata
     });
     
     console.log('Message sent successfully:', response.data);
@@ -379,5 +391,57 @@ export const markMessageAsRead = async (messageId: string): Promise<void> => {
   } catch (error: any) {
     console.error('Error marking message as read:', error);
     throw error.response?.data || error;
+  }
+};
+
+export const uploadFile = async (formData: FormData) => {
+  try {
+    console.log('Starting file upload...');
+    console.log('FormData contents:', formData);
+    
+    // Get token from AsyncStorage
+    const token = await AsyncStorage.getItem('token');
+    
+    // Use axios directly
+    const response = await axios.post(`${BASE_URL}/files/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'Accept': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : '',
+      },
+      timeout: 60000, // 60 seconds timeout
+      maxContentLength: 50 * 1024 * 1024, // 50MB max file size
+      maxBodyLength: 50 * 1024 * 1024, // 50MB max file size
+    });
+    
+    console.log('Upload response:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('Upload file error details:', {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data,
+      status: error.response?.status,
+      headers: error.response?.headers
+    });
+    
+    if (error.response) {
+      // Server responded with an error
+      throw error.response.data;
+    } else if (error.request) {
+      // Request was made but no response received
+      throw {
+        success: false,
+        message: 'Không nhận được phản hồi từ server',
+        error: 'NO_RESPONSE'
+      };
+    } else {
+      // Error setting up the request
+      throw {
+        success: false,
+        message: 'Lỗi kết nối: ' + error.message,
+        error: 'REQUEST_ERROR'
+      };
+    }
   }
 }; 
