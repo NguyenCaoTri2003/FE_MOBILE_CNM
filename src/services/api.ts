@@ -147,7 +147,7 @@ export const uploadAvatar = async (formData: FormData) => {
 
 export const changePassword = async (currentPassword: string, newPassword: string) => {
   try {
-    const response = await api.put('/change-password', {
+    const response = await api.put('/update-password', {
       currentPassword,
       newPassword
     });
