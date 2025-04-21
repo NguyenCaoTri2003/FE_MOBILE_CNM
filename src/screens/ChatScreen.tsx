@@ -5,7 +5,19 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { getMessages, sendMessage, markMessageAsRead, uploadFile, sendReaction, recallMessage, deleteMessage, getFriends } from '../services/api';
+import { 
+  getMessages, 
+  sendMessage, 
+  markMessageAsRead, 
+  uploadFile,
+  addReaction,
+  recallMessage, 
+  deleteMessage,
+  getFriends,
+  Message,
+  ChatResponse,
+  SendMessageResponse
+} from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { io } from 'socket.io-client';
@@ -13,11 +25,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
-import type { Message, Reaction, Friend } from '../services/api';
+import type { Friend } from '../services/api';
 import * as Clipboard from 'expo-clipboard';
-
-// API base URL
-const BASE_URL = 'http://192.168.110.77:5000/api';
+import { API_BASE_URL } from '@env';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -58,7 +68,7 @@ const EMOJIS = [
   '⭐', '🌟', '✨', '⚡', '☄️', '💥', '🔥', '🌪️', '🌈', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️',
   
   // Đối tượng
-  '💎', '💍', '🔔', '🎵', '🎶', '🚗', '✈️', '🚀', '⌚', '📱', '💻', '⌨️', '🖨️', '��️', '💡', '🔦'
+  '💎', '💍', '🔔', '🎵', '🎶', '🚗', '✈️', '🚀', '⌚', '📱', '💻', '⌨️', '🖨️', '💡', '🔦'
 ];
 
 const REACTIONS = [
@@ -102,7 +112,8 @@ const ChatScreen = () => {
   // Sửa lại useEffect cho auto-scrolling
   useEffect(() => {
     if (messages.length > 0 && flatListRef.current) {
-      flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      // Cuộn xuống cuối khi có tin nhắn mới
+      flatListRef.current.scrollToEnd({ animated: true });
     }
   }, [messages]);
 
@@ -118,7 +129,7 @@ const ChatScreen = () => {
         }
 
         // Initialize socket connection
-        const socketUrl = 'http://192.168.110.77:5000';
+        const socketUrl = API_BASE_URL;
         console.log('Initializing socket connection to:', socketUrl);
         
         if (socket.current) {
@@ -349,20 +360,30 @@ const ChatScreen = () => {
       console.log('Loading messages for:', receiverEmail);
       const response = await getMessages(receiverEmail);
       if (response.success) {
-        setMessages(response.data);
-        // Chỉ đánh dấu đã đọc nếu người dùng đang tương tác với màn hình
+        // Sắp xếp tin nhắn theo thời gian tăng dần (cũ nhất lên đầu)
+        const sortedMessages = response.data.sort((a, b) => {
+          const dateA = new Date(a.createdAt).getTime();
+          const dateB = new Date(b.createdAt).getTime();
+          return dateA - dateB;
+        });
+        setMessages(sortedMessages);
+        
+        // Mark messages as read if user has interacted with the screen
         if (hasInteracted) {
-          response.data.forEach(msg => {
-            if (msg.status !== 'read' && msg.senderEmail === receiverEmail) {
-              markMessageAsRead(msg.messageId);
-              if (socket.current) {
-                socket.current.emit('messageRead', {
-                  messageId: msg.messageId,
-                  senderEmail: msg.senderEmail
-                });
-              }
+          const unreadMessages = sortedMessages.filter(
+            msg => msg.status !== 'read' && msg.senderEmail === receiverEmail
+          );
+          
+          // Batch mark messages as read
+          if (unreadMessages.length > 0) {
+            const messageIds = unreadMessages.map(msg => msg.messageId);
+            if (socket.current) {
+              socket.current.emit('messagesRead', {
+                messageIds,
+                senderEmail: receiverEmail
+              });
             }
-          });
+          }
         }
       }
     } catch (error) {
@@ -379,14 +400,8 @@ const ChatScreen = () => {
       console.log('Sending message to:', receiverEmail);
       const response = await sendMessage(receiverEmail, newMessage.trim());
       if (response.success) {
-        // Kiểm tra trùng lặp trước khi thêm tin nhắn mới
-        setMessages(prev => {
-          const messageExists = prev.some(msg => msg.messageId === response.data.messageId);
-          if (!messageExists) {
-            return [...prev, response.data];
-          }
-          return prev;
-        });
+        // Add new message to the end of the array
+        setMessages(prev => [...prev, response.data]);
         setNewMessage('');
 
         // Emit socket event
@@ -724,163 +739,47 @@ const ChatScreen = () => {
     }
   };
 
-  const handleReaction = async (message: Message, reaction: string) => {
+  const handleReaction = async (messageId: string, reaction: string) => {
     try {
-      console.log('Sending reaction:', { messageId: message.messageId, reaction });
-      
-      // Close reactions menu immediately
-      setShowReactions(false);
-      
-      // Cập nhật UI ngay lập tức
-      setMessages(prev => prev.map(msg => 
-        msg.messageId === message.messageId 
-          ? {
-              ...msg,
-              reactions: [...(msg.reactions || []), {
-                messageId: msg.messageId,
-                reaction,
-                senderEmail: socket.current?.user?.email || ''
-              }]
-            }
-          : msg
-      ));
-
-      // Emit socket event
-      if (socket.current?.connected) {
-        console.log('Emitting messageReaction event');
-        socket.current.emit('messageReaction', {
-          messageId: message.messageId,
-          reaction,
-          receiverEmail
-        });
-      } else {
-        console.error('Socket not connected for reaction');
-      }
-
-      // Gọi API để lưu reaction
-      const response = await sendReaction(message.messageId, reaction);
-      if (!response.success) {
-        console.error('API call failed for reaction');
-        // Hoàn tác UI nếu API thất bại
-        setMessages(prev => prev.map(msg => 
-          msg.messageId === message.messageId 
-            ? {
-                ...msg,
-                reactions: msg.reactions?.filter(r => 
-                  !(r.messageId === message.messageId && 
-                    r.reaction === reaction && 
-                    r.senderEmail === socket.current?.user?.email)
-                )
-              }
-            : msg
-        ));
-        Alert.alert('Lỗi', 'Không thể thả cảm xúc. Vui lòng thử lại.');
+      const response = await addReaction(messageId, reaction);
+      if (response) {
+        // Update the message in the messages state
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            msg.messageId === messageId ? response : msg
+          )
+        );
       }
     } catch (error) {
-      console.error('Error in handleReaction:', error);
-      // Hoàn tác UI nếu có lỗi
-      setMessages(prev => prev.map(msg => 
-        msg.messageId === message.messageId 
-          ? {
-              ...msg,
-              reactions: msg.reactions?.filter(r => 
-                !(r.messageId === message.messageId && 
-                  r.reaction === reaction && 
-                  r.senderEmail === socket.current?.user?.email)
-              )
-            }
-          : msg
-      ));
-      Alert.alert('Lỗi', 'Không thể thả cảm xúc. Vui lòng thử lại.');
+      console.error('Error adding reaction:', error);
     }
   };
 
-  // Thêm hàm xử lý thu hồi tin nhắn
-  const handleRecallMessage = async (message: Message) => {
+  const handleRecall = async (messageId: string) => {
     try {
-      console.log('Attempting to recall message:', message.messageId);
-      
-      // Close the message actions menu immediately
-      setShowMessageActions(false);
-      
-      // Cập nhật UI ngay lập tức
-      setMessages(prev => prev.map(msg => 
-        msg.messageId === message.messageId 
-          ? { ...msg, isRecalled: true, content: 'Tin nhắn đã được thu hồi' }
-          : msg
-      ));
-
-      // Emit socket event
-      if (socket.current?.connected) {
-        console.log('Emitting messageRecalled event');
-        socket.current.emit('messageRecalled', {
-          messageId: message.messageId,
-          receiverEmail,
-          senderEmail: message.senderEmail
-        });
-      } else {
-        console.error('Socket not connected for message recall');
-      }
-
-      // Gọi API để lưu trạng thái
-      const response = await recallMessage(message.messageId);
-      if (!response.success) {
-        console.error('API call failed for message recall');
-        // Hoàn tác UI nếu API thất bại
-        setMessages(prev => prev.map(msg => 
-          msg.messageId === message.messageId 
-            ? { ...msg, isRecalled: false, content: message.content }
-            : msg
-        ));
-        Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+      const response = await recallMessage(messageId);
+      if (response) {
+        // Update the message in the messages state
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            msg.messageId === messageId ? response : msg
+          )
+        );
       }
     } catch (error) {
-      console.error('Error in handleRecallMessage:', error);
-      // Hoàn tác UI nếu có lỗi
-      setMessages(prev => prev.map(msg => 
-        msg.messageId === message.messageId 
-          ? { ...msg, isRecalled: false, content: message.content }
-          : msg
-      ));
-      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+      console.error('Error recalling message:', error);
     }
   };
 
-  // Thêm hàm xử lý xóa tin nhắn
-  const handleDeleteMessage = async (message: Message) => {
+  const handleDelete = async (messageId: string) => {
     try {
-      console.log('Attempting to delete message:', message.messageId);
-      
-      // Close the message actions menu immediately
-      setShowMessageActions(false);
-      
-      // Cập nhật UI ngay lập tức
-      setMessages(prev => prev.filter(msg => msg.messageId !== message.messageId));
-
-      // Emit socket event
-      if (socket.current?.connected) {
-        console.log('Emitting messageDeleted event');
-        socket.current.emit('messageDeleted', {
-          messageId: message.messageId,
-          receiverEmail
-        });
-      } else {
-        console.error('Socket not connected for message delete');
-      }
-
-      // Gọi API để xóa tin nhắn
-      const response = await deleteMessage(message.messageId);
-      if (!response.success) {
-        console.error('API call failed for message delete');
-        // Hoàn tác UI nếu API thất bại
-        setMessages(prev => [...prev, message]);
-        Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
-      }
+      await deleteMessage(messageId);
+      // Remove the message from the messages state
+      setMessages(prevMessages => 
+        prevMessages.filter(msg => msg.messageId !== messageId)
+      );
     } catch (error) {
-      console.error('Error in handleDeleteMessage:', error);
-      // Hoàn tác UI nếu có lỗi
-      setMessages(prev => [...prev, message]);
-      Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
+      console.error('Error deleting message:', error);
     }
   };
 
@@ -1313,14 +1212,19 @@ const ChatScreen = () => {
       >
         <FlatList
           ref={flatListRef}
-          data={[...messages].reverse()}
+          data={messages}
           renderItem={renderMessage}
           keyExtractor={(item) => `${item.messageId}_${item.createdAt}`}
-          inverted
           style={styles.flatList}
           contentContainerStyle={styles.messagesList}
           onScroll={handleUserInteraction}
           onTouchStart={handleUserInteraction}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          initialNumToRender={15}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
 
         {/* Emoji Picker */}
@@ -1436,7 +1340,7 @@ const ChatScreen = () => {
                   if (!selectedMessage) return;
                   
                   if (reaction.type === 'reaction') {
-                    handleReaction(selectedMessage, reaction.emoji);
+                    handleReaction(selectedMessage.messageId, reaction.emoji);
                   } else if (reaction.type === 'action') {
                     if (reaction.name === 'copy') {
                       handleCopyText(selectedMessage);
@@ -1468,14 +1372,14 @@ const ChatScreen = () => {
           <View style={styles.messageActionsMenu}>
             <TouchableOpacity
               style={styles.messageActionButton}
-              onPress={() => selectedMessageForActions && handleRecallMessage(selectedMessageForActions)}
+              onPress={() => selectedMessageForActions && handleRecall(selectedMessageForActions.messageId)}
             >
               <Ionicons name="refresh-outline" size={24} color="#0068ff" />
               <Text style={styles.messageActionText}>Thu hồi</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.messageActionButton}
-              onPress={() => selectedMessageForActions && handleDeleteMessage(selectedMessageForActions)}
+              onPress={() => selectedMessageForActions && handleDelete(selectedMessageForActions.messageId)}
             >
               <Ionicons name="trash-outline" size={24} color="#ff3b30" />
               <Text style={[styles.messageActionText, { color: '#ff3b30' }]}>Xóa</Text>

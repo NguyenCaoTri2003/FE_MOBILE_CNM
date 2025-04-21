@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '@env';
 
-const SOCKET_URL = 'http://192.168.110.77:5000'; // Thay đổi URL tùy theo server của bạn
+const SOCKET_URL = API_BASE_URL; // Using environment variable instead of hardcoded URL
 
 interface SocketService {
   on(event: string, callback: (data: any) => void): void;

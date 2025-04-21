@@ -5,27 +5,16 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { getFriends, getMessages, Message } from '../services/api';
-
-// Add type definitions at the top of the file
-declare global {
-  var cachedFriends: Friend[];
-}
+import { getFriends, getMessages, Message, Friend } from '../services/api';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-interface Friend {
-  email: string;
-  fullName: string;
-  avatar: string;
-  online?: boolean;
-}
 
 interface Conversation {
   email: string;
   fullName: string;
   avatar: string;
   lastMessage?: Message;
+  unreadCount?: number;
 }
 
 const MessagesScreen = () => {
@@ -33,119 +22,69 @@ const MessagesScreen = () => {
   const [activeTab, setActiveTab] = useState('messages');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Try to load from cache first
-    const cachedFriends = global.cachedFriends;
-    if (cachedFriends) {
-      setConversations(cachedFriends.map(friend => ({
-        email: friend.email,
-        fullName: friend.fullName,
-        avatar: friend.avatar
-      })));
-    }
+    loadConversations();
+  }, []);
 
-    // Then fetch fresh data in background
-    const loadFriends = async () => {
-      try {
-        const friendsResponse = await getFriends();
-        if (friendsResponse.success && friendsResponse.data) {
-          const friends = friendsResponse.data;
-          // Cache friends data globally
-          global.cachedFriends = friends;
-          
-          // Update UI with fresh data
-          setConversations(friends.map(friend => ({
-            email: friend.email,
-            fullName: friend.fullName,
-            avatar: friend.avatar
-          })));
-
-          // Fetch messages in background without blocking UI
-          setTimeout(() => {
-            fetchMessages(friends);
-          }, 100);
-        }
-      } catch (error) {
-        console.error('Error fetching friends:', error);
-      }
-    };
-
-    loadFriends();
-    
-    const unsubscribe = navigation.addListener('focus', () => {
-      setActiveTab('messages');
-      if (global.cachedFriends) {
-        setConversations(global.cachedFriends.map(friend => ({
-          email: friend.email,
-          fullName: friend.fullName,
-          avatar: friend.avatar
-        })));
-      }
-      loadFriends();
-    });
-
-    return unsubscribe;
-  }, [navigation]);
-
-  // Optimize message fetching to run in chunks
-  const fetchMessages = async (friends: any[]) => {
+  const loadConversations = async () => {
     try {
-      // Process in chunks of 5 to avoid overwhelming the API
-      const chunkSize = 5;
-      for (let i = 0; i < friends.length; i += chunkSize) {
-        const chunk = friends.slice(i, i + chunkSize);
-        const chunkPromises = chunk.map(async (friend) => {
-          try {
-            const messagesResponse = await getMessages(friend.email);
-            if (!messagesResponse.success) return null;
+      setLoading(true);
+      const friendsResponse = await getFriends();
+      if (friendsResponse.success) {
+        const friends = friendsResponse.data;
+        
+        // Load last message for each conversation
+        const conversationsWithMessages = await Promise.all(
+          friends.map(async (friend) => {
+            try {
+              const messagesResponse = await getMessages(friend.email);
+              const messages = messagesResponse.success ? messagesResponse.data : [];
+              
+              // Get last message and count unread messages
+              const lastMessage = messages[0]; // Messages are already sorted by time
+              const unreadCount = messages.filter(
+                msg => msg.status !== 'read' && msg.senderEmail === friend.email
+              ).length;
 
-            const theirMessages = messagesResponse.data.filter(msg => msg.senderEmail === friend.email);
-            const lastMessage = theirMessages.length > 0 ? theirMessages[theirMessages.length - 1] : undefined;
-
-            return {
-              email: friend.email,
-              fullName: friend.fullName,
-              avatar: friend.avatar,
-              lastMessage
-            };
-          } catch (error) {
-            console.error('Error fetching messages for friend:', friend.email, error);
-            return null;
-          }
-        });
-
-        const results = await Promise.all(chunkPromises);
-        const validResults = results.filter(result => result !== null) as Conversation[];
-
-        setConversations(prev => {
-          const updated = [...prev];
-          validResults.forEach(result => {
-            const index = updated.findIndex(conv => conv.email === result.email);
-            if (index !== -1) {
-              updated[index] = result;
+              return {
+                email: friend.email,
+                fullName: friend.fullName,
+                avatar: friend.avatar,
+                lastMessage,
+                unreadCount
+              };
+            } catch (error) {
+              console.error(`Error loading messages for ${friend.email}:`, error);
+              return {
+                email: friend.email,
+                fullName: friend.fullName,
+                avatar: friend.avatar
+              };
             }
-          });
-          return updated.sort((a, b) => {
-            if (!a.lastMessage) return 1;
-            if (!b.lastMessage) return -1;
-            return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
-          });
+          })
+        );
+
+        // Sort conversations by last message time
+        const sortedConversations = conversationsWithMessages.sort((a, b) => {
+          if (!a.lastMessage && !b.lastMessage) return 0;
+          if (!a.lastMessage) return 1;
+          if (!b.lastMessage) return -1;
+          
+          const dateA = new Date(a.lastMessage.createdAt).getTime();
+          const dateB = new Date(b.lastMessage.createdAt).getTime();
+          return dateB - dateA;
         });
 
-        // Add a small delay between chunks to prevent overwhelming
-        if (i + chunkSize < friends.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        setConversations(sortedConversations);
       }
     } catch (error) {
-      console.error('Error fetching messages:', error);
+      console.error('Error loading conversations:', error);
+    } finally {
+      setLoading(false);
     }
   };
-
-  const filteredConversations = conversations.filter(conversation => 
-    conversation.fullName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const formatTimeAgo = (timestamp: string) => {
     const messageDate = new Date(timestamp);
@@ -167,10 +106,17 @@ const MessagesScreen = () => {
     const getMessageContent = (message?: Message) => {
       if (!message) return '';
       
-      // Kiểm tra nếu content là URL từ S3
+      if (message.isRecalled) {
+        return 'Tin nhắn đã được thu hồi';
+      }
+      
+      // Check if content is a URL from S3
       if (message.content.includes('amazonaws.com')) {
         if (message.metadata?.fileType?.startsWith('image')) {
           return 'Đã gửi một ảnh';
+        }
+        if (message.metadata?.fileType?.startsWith('video')) {
+          return 'Đã gửi một video';
         }
         return 'Đã gửi một file';
       }
@@ -180,7 +126,10 @@ const MessagesScreen = () => {
 
     return (
       <TouchableOpacity 
-        style={styles.conversationItem}
+        style={[
+          styles.conversationItem,
+          item.unreadCount ? styles.unreadConversation : null
+        ]}
         onPress={() => navigation.navigate('Chat', { 
           fullName: item.fullName,
           avatar: item.avatar,
@@ -193,16 +142,34 @@ const MessagesScreen = () => {
             source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
             size={50}
           />
+          {item.unreadCount ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadCount}>{item.unreadCount}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.conversationDetails}>
           <View style={styles.conversationHeader}>
-            <Text style={styles.conversationName} numberOfLines={1}>{item.fullName}</Text>
+            <Text style={[
+              styles.conversationName,
+              item.unreadCount ? styles.unreadName : null
+            ]} numberOfLines={1}>
+              {item.fullName}
+            </Text>
             {item.lastMessage && (
-              <Text style={styles.timeText}>{formatTimeAgo(item.lastMessage.createdAt)}</Text>
+              <Text style={[
+                styles.timeText,
+                item.unreadCount ? styles.unreadTime : null
+              ]}>
+                {formatTimeAgo(item.lastMessage.createdAt)}
+              </Text>
             )}
           </View>
-          <Text style={[styles.lastMessage, { color: '#666' }]} numberOfLines={1}>
+          <Text style={[
+            styles.lastMessage,
+            item.unreadCount ? styles.unreadMessage : null
+          ]} numberOfLines={1}>
             {getMessageContent(item.lastMessage)}
           </Text>
         </View>
@@ -217,37 +184,40 @@ const MessagesScreen = () => {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={24} color="#fff" style={styles.searchIcon} />
+          <Ionicons name="search" size={20} color="#fff" style={styles.searchIcon} />
           <TextInput
-            placeholder="Tìm kiếm bạn bè"
-            placeholderTextColor="#fff"
             style={styles.searchInput}
+            placeholder="Tìm kiếm"
+            placeholderTextColor="rgba(255, 255, 255, 0.7)"
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
         </View>
         <View style={styles.headerIcons}>
           <TouchableOpacity style={styles.qrCode}>
-            <Ionicons name="qr-code" size={24} color="#fff" />
+            <Ionicons name="qr-code-outline" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => navigation.navigate('FriendRequests')}
-          >
-            <Ionicons name="add" size={24} color="#fff" />
+          <TouchableOpacity style={styles.addButton}>
+            <Ionicons name="add-circle-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Conversations List */}
       <FlatList
-        data={filteredConversations}
+        data={conversations.filter(conv => 
+          conv.fullName.toLowerCase().includes(searchQuery.toLowerCase())
+        )}
         renderItem={renderConversationItem}
-        keyExtractor={(item) => item.email}
+        keyExtractor={item => item.email}
         style={styles.list}
+        refreshing={loading}
+        onRefresh={loadConversations}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Không có cuộc trò chuyện nào</Text>
+            <Text style={styles.emptyText}>
+              {searchQuery ? 'Không tìm thấy cuộc trò chuyện nào' : 'Chưa có cuộc trò chuyện nào'}
+            </Text>
           </View>
         }
       />
@@ -441,6 +411,38 @@ const styles = StyleSheet.create({
   },
   activeNavText: {
     color: '#0068ff',
+  },
+  unreadConversation: {
+    backgroundColor: '#f0f7ff',
+  },
+  unreadBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#0068ff',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  unreadCount: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  unreadName: {
+    color: '#0068ff',
+    fontWeight: 'bold',
+  },
+  unreadTime: {
+    color: '#0068ff',
+    fontWeight: 'bold',
+  },
+  unreadMessage: {
+    color: '#0068ff',
+    fontWeight: '500',
   },
 });
 

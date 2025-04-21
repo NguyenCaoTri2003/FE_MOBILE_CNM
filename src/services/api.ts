@@ -1,13 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { jwtDecode } from 'jwt-decode';
+import { API_BASE_URL, DEFAULT_AVATAR_URL } from '@env';
 
-interface DecodedToken {
-  userId: string;
-  [key: string]: any;
-}
-
-const BASE_URL = 'http://192.168.110.77:5000/api';
+const BASE_URL = `${API_BASE_URL}/api`;
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -38,15 +33,19 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      // The request was made and the server responded with a status code
-      // that falls out of the range of 2xx
       return Promise.reject(error.response.data);
     } else if (error.request) {
-      // The request was made but no response was received
-      return Promise.reject({ message: 'No response from server. Please check your internet connection.' });
+      return Promise.reject({ 
+        success: false,
+        message: 'Không nhận được phản hồi từ server',
+        error: 'NO_RESPONSE'
+      });
     } else {
-      // Something happened in setting up the request that triggered an Error
-      return Promise.reject({ message: 'An unexpected error occurred.' });
+      return Promise.reject({ 
+        success: false,
+        message: 'Lỗi kết nối: ' + error.message,
+        error: 'REQUEST_ERROR'
+      });
     }
   }
 );
@@ -82,7 +81,7 @@ export const register = async (email: string, password: string, name: string, ph
       fullName: name.trim(),
       phoneNumber: phone.trim(),
       createdAt: new Date().toISOString(),
-      avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
+      avatar: DEFAULT_AVATAR_URL
     };
     
     const response = await api.post('/register', userData);
@@ -180,7 +179,7 @@ export const registerVerify = async (
       fullName,
       password,
       phoneNumber,
-      avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
+      avatar: DEFAULT_AVATAR_URL
     };
     
     const response = await api.post('/register/verify', userData);
@@ -344,30 +343,10 @@ export interface SendMessageResponse {
 
 export const getMessages = async (receiverEmail: string): Promise<ChatResponse> => {
   try {
-    console.log('Getting messages for:', receiverEmail);
-    console.log('API URL:', `${BASE_URL}/messages/conversation/${receiverEmail}`);
-    
     const response = await api.get(`/messages/conversation/${receiverEmail}`);
-    
-    if (!response.data.success) {
-      throw new Error(response.data.error || 'Failed to get messages');
-    }
-    
-    console.log('Messages retrieved successfully:', response.data);
     return response.data;
   } catch (error: any) {
-    console.error('Error getting messages:', error);
-    if (error.response) {
-      console.error('Error response:', error.response.data);
-      console.error('Error status:', error.response.status);
-      throw error.response.data;
-    } else if (error.request) {
-      console.error('No response received:', error.request);
-      throw { message: 'No response from server' };
-    } else {
-      console.error('Error setting up request:', error.message);
-      throw error;
-    }
+    throw error.response?.data || error;
   }
 };
 
@@ -382,32 +361,15 @@ export const sendMessage = async (
   }
 ): Promise<SendMessageResponse> => {
   try {
-    console.log('Sending message to:', receiverEmail);
-    console.log('Message content:', content);
-    console.log('API URL:', `${BASE_URL}/messages/send`);
-    
     const response = await api.post('/messages/send', {
       receiverEmail,
       content,
       type,
       metadata
     });
-    
-    console.log('Message sent successfully:', response.data);
     return response.data;
   } catch (error: any) {
-    console.error('Error sending message:', error);
-    if (error.response) {
-      console.error('Error response:', error.response.data);
-      console.error('Error status:', error.response.status);
-      throw error.response.data;
-    } else if (error.request) {
-      console.error('No response received:', error.request);
-      throw { message: 'No response from server' };
-    } else {
-      console.error('Error setting up request:', error.message);
-      throw error;
-    }
+    throw error.response?.data || error;
   }
 };
 
@@ -415,54 +377,65 @@ export const markMessageAsRead = async (messageId: string): Promise<void> => {
   try {
     await api.put(`/messages/read/${messageId}`);
   } catch (error: any) {
-    console.error('Error marking message as read:', error);
+    throw error.response?.data || error;
+  }
+};
+
+export const addReaction = async (messageId: string, reaction: string): Promise<Message> => {
+  try {
+    const response = await api.post('/messages/reaction', {
+      messageId,
+      reaction
+    });
+    return response.data.data;
+  } catch (error: any) {
+    throw error.response?.data || error;
+  }
+};
+
+export const recallMessage = async (messageId: string): Promise<Message> => {
+  try {
+    const response = await api.put(`/messages/recall/${messageId}`);
+    return response.data.data;
+  } catch (error: any) {
+    throw error.response?.data || error;
+  }
+};
+
+export const deleteMessage = async (messageId: string): Promise<void> => {
+  try {
+    await api.delete(`/messages/delete/${messageId}`);
+  } catch (error: any) {
     throw error.response?.data || error;
   }
 };
 
 export const uploadFile = async (formData: FormData) => {
   try {
-    console.log('Starting file upload...');
-    console.log('FormData contents:', formData);
-    
-    // Get token from AsyncStorage
     const token = await AsyncStorage.getItem('token');
     
-    // Use axios directly
     const response = await axios.post(`${BASE_URL}/files/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
         'Accept': 'application/json',
         'Authorization': token ? `Bearer ${token}` : '',
       },
-      timeout: 60000, // 60 seconds timeout
-      maxContentLength: 50 * 1024 * 1024, // 50MB max file size
-      maxBodyLength: 50 * 1024 * 1024, // 50MB max file size
+      timeout: 60000,
+      maxContentLength: 50 * 1024 * 1024,
+      maxBodyLength: 50 * 1024 * 1024,
     });
     
-    console.log('Upload response:', response.data);
     return response.data;
   } catch (error: any) {
-    console.error('Upload file error details:', {
-      message: error.message,
-      code: error.code,
-      response: error.response?.data,
-      status: error.response?.status,
-      headers: error.response?.headers
-    });
-    
     if (error.response) {
-      // Server responded with an error
       throw error.response.data;
     } else if (error.request) {
-      // Request was made but no response received
       throw {
         success: false,
         message: 'Không nhận được phản hồi từ server',
         error: 'NO_RESPONSE'
       };
     } else {
-      // Error setting up the request
       throw {
         success: false,
         message: 'Lỗi kết nối: ' + error.message,
@@ -495,52 +468,6 @@ export const getConversations = async (): Promise<ConversationsResponse> => {
     const response = await api.get('/messages/conversations');
     return response.data;
   } catch (error) {
-    throw error;
-  }
-};
-
-export const sendReaction = async (messageId: string, reaction: string): Promise<ReactionResponse> => {
-  try {
-    const response = await api.post('/messages/reaction', {
-      messageId,
-      reaction
-    });
-    return response.data;
-  } catch (error: any) {
-    console.error('Error sending reaction:', error);
-    throw error.response?.data || error;
-  }
-};
-
-export const recallMessage = async (messageId: string) => {
-  try {
-    const token = await AsyncStorage.getItem('token');
-    const response = await axios.put(
-      `${BASE_URL}/messages/recall/${messageId}`,
-      {},
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Error recalling message:', error);
-    throw error;
-  }
-};
-
-export const deleteMessage = async (messageId: string) => {
-  try {
-    const token = await AsyncStorage.getItem('token');
-    const response = await axios.delete(
-      `${BASE_URL}/messages/delete/${messageId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Error deleting message:', error);
     throw error;
   }
 };
