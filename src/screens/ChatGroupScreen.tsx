@@ -12,9 +12,10 @@ import {
   addReactionToGroupMessage,
   recallGroupMessage, 
   deleteGroupMessage,
-  GroupMessage,
   GroupMessagesResponse,
-  SendMessageResponse
+  SendMessageResponse,
+  Message,
+  searchUsers
 } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -58,7 +59,7 @@ interface MessageReaction {
   senderEmail: string;
 }
 
-interface ExtendedGroupMessage extends Omit<GroupMessage, 'groupId'> {
+interface ExtendedGroupMessage extends Message {
   groupId: string;
   senderName?: string;
   senderAvatar?: string;
@@ -104,6 +105,7 @@ const ChatGroupScreen = () => {
   const [selectedMessageForActions, setSelectedMessageForActions] = useState<ExtendedGroupMessage | null>(null);
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const [userAvatars, setUserAvatars] = useState<{ [key: string]: string }>({});
 
   useEffect(() => {
     const initializeSocket = async () => {
@@ -195,6 +197,23 @@ const ChatGroupScreen = () => {
     getCurrentUserEmail();
   }, []);
 
+  const fetchUserAvatar = async (email: string) => {
+    try {
+      const response = await searchUsers(email);
+      if (response.success && response.data) {
+        setUserAvatars(prev => ({
+          ...prev,
+          [email]: response.data.avatar
+        }));
+        return response.data.avatar;
+      }
+      return 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
+    } catch (error) {
+      console.error('Error fetching user avatar:', error);
+      return 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
+    }
+  };
+
   const loadMessages = async () => {
     try {
       const token = await AsyncStorage.getItem('token');
@@ -207,13 +226,16 @@ const ChatGroupScreen = () => {
       console.log('Group messages response:', response);
       
       if (response.success && response.data.messages) {
-        const messagesWithInfo = response.data.messages.map(message => ({
-          ...message,
-          groupId,
-          senderName: message.senderEmail,
-          senderAvatar: 'https://randomuser.me/api/portraits/men/1.jpg',
-          isCurrentUser: message.senderEmail === decoded.email
-        })) as ExtendedGroupMessage[];
+        const messagesWithInfo = await Promise.all(response.data.messages.map(async message => {
+          const avatar = await fetchUserAvatar(message.senderEmail);
+          return {
+            ...message,
+            groupId,
+            senderName: message.senderEmail,
+            senderAvatar: avatar,
+            isCurrentUser: message.senderEmail === decoded.email
+          } as ExtendedGroupMessage;
+        }));
         setMessages(messagesWithInfo);
       } else {
         console.error('Invalid response format:', response);
@@ -237,6 +259,7 @@ const ChatGroupScreen = () => {
         if (!token) return;
 
         const decoded = jwtDecode<{ email: string; id: string }>(token);
+        const avatar = await fetchUserAvatar(decoded.email);
         const newMessageWithInfo: ExtendedGroupMessage = {
           ...response.data,
           groupId,
@@ -246,7 +269,7 @@ const ChatGroupScreen = () => {
           createdAt: new Date().toISOString(),
           status: 'sent',
           senderName: decoded.email,
-          senderAvatar: 'https://randomuser.me/api/portraits/men/1.jpg',
+          senderAvatar: avatar,
           isCurrentUser: true
         };
         setMessages(prev => [...prev, newMessageWithInfo] as ExtendedGroupMessage[]);
@@ -323,7 +346,7 @@ const ChatGroupScreen = () => {
             createdAt: new Date().toISOString(),
             status: 'sent',
             senderName: decoded.email,
-            senderAvatar: 'https://randomuser.me/api/portraits/men/1.jpg',
+            senderAvatar: response.data.sender?.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
             isCurrentUser: true,
             type: 'file',
             metadata: {
@@ -397,7 +420,7 @@ const ChatGroupScreen = () => {
               createdAt: new Date().toISOString(),
               status: 'sent',
               senderName: decoded.email,
-              senderAvatar: 'https://randomuser.me/api/portraits/men/1.jpg',
+              senderAvatar: response.data.sender?.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
               isCurrentUser: true,
               type: 'image',
               metadata: {
@@ -492,7 +515,8 @@ const ChatGroupScreen = () => {
       content: item.content,
       senderEmail: item.senderEmail,
       currentUserEmail,
-      isMe
+      isMe,
+      senderAvatar: item.senderAvatar
     });
 
     if (item.isRecalled) {
@@ -501,7 +525,7 @@ const ChatGroupScreen = () => {
           {!isMe && (
             <Avatar
               rounded
-              source={{ uri: item.senderAvatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+              source={{ uri: item.senderAvatar }}
               size={30}
               containerStyle={styles.avatar}
             />
@@ -652,7 +676,7 @@ const ChatGroupScreen = () => {
           {!isMe && (
             <Avatar
               rounded
-              source={{ uri: item.senderAvatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+              source={{ uri: item.senderAvatar }}
               size={30}
               containerStyle={styles.avatar}
             />
