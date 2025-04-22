@@ -805,8 +805,7 @@ const ChatGroupScreen = () => {
             />
           )}
           <View style={[styles.messageBubble, styles.recalledBubble]}>
-            <Text style={styles.recalledText}>{item.content}</Text>
-            <Text style={styles.recalledLabel}>Tin nhắn đã được thu hồi</Text>
+            <Text style={styles.recalledText}>Tin nhắn đã được thu hồi</Text>
           </View>
         </View>
       );
@@ -1582,12 +1581,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 2,
-  },
-  recalledLabel: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
-    marginTop: 4,
   },
 });
 
