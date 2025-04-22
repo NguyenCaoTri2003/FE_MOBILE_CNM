@@ -1,6 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, DEFAULT_AVATAR_URL } from '@env';
+import { Platform } from 'react-native';
 
 const BASE_URL = `${API_BASE_URL}/api`;
 
@@ -781,21 +782,29 @@ export const updateGroupInfo = async (
     }
     
     if (data.avatar) {
-      formData.append('file', {
-        uri: data.avatar.uri,
+      // Ensure the file object is properly formatted
+      const file = {
+        uri: Platform.OS === 'android' ? data.avatar.uri : data.avatar.uri.replace('file://', ''),
         type: data.avatar.type || 'image/jpeg',
         name: data.avatar.name || 'avatar.jpg',
-      } as any);
+      };
+      
+      formData.append('file', file as any);
     }
     
     const response = await api.put(`/groups/${groupId}/info`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
+        'Accept': 'application/json',
+      },
+      transformRequest: (data, headers) => {
+        return data; // Don't transform FormData
       },
     });
     
     return response.data;
   } catch (error) {
+    console.error('Error updating group info:', error);
     throw error;
   }
 }; 

@@ -10,6 +10,7 @@ import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { API_BASE_URL } from '@env';
+import { jwtDecode } from 'jwt-decode';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -47,24 +48,26 @@ const GroupInfoScreen = () => {
     try {
       const response = await getGroupMembers(groupId);
       setMembers(response.data.members);
-      // Check if current user is admin
-      const currentUserEmail = await AsyncStorage.getItem('userEmail');
-      console.log('Raw current user email from AsyncStorage:', currentUserEmail);
-      console.log('Type of currentUserEmail:', typeof currentUserEmail);
-      console.log('Group members:', response.data.members);
       
+      // Get current user email from token instead of AsyncStorage
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        console.error('No token found');
+        setIsAdmin(false);
+        return;
+      }
+
+      const decoded = jwtDecode<{ email: string }>(token);
+      const currentUserEmail = decoded.email;
+      
+      // Check if current user is admin
       const isUserAdmin = response.data.members.some((m: Member) => {
-        console.log('Checking member:', m.email, 'Role:', m.role);
-        console.log('Normalized member email:', m.email?.trim().toLowerCase());
-        console.log('Normalized current email:', currentUserEmail?.trim().toLowerCase());
-        // Normalize emails by trimming and converting to lowercase
         const normalizedMemberEmail = m.email?.trim().toLowerCase();
         const normalizedCurrentEmail = currentUserEmail?.trim().toLowerCase();
-        const isMatch = m.role === 'admin' && normalizedMemberEmail === normalizedCurrentEmail;
-        console.log('Is match:', isMatch);
-        return isMatch;
+        return m.role === 'admin' && normalizedMemberEmail === normalizedCurrentEmail;
       });
       
+      console.log('Current user email:', currentUserEmail);
       console.log('Is user admin:', isUserAdmin);
       setIsAdmin(isUserAdmin);
     } catch (error: any) {
