@@ -28,6 +28,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import { API_BASE_URL } from '@env';
 import { jwtDecode } from 'jwt-decode';
+import { socketService } from '../services/socket';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -161,85 +162,9 @@ const ChatGroupScreen = () => {
   const [showAdminActions, setShowAdminActions] = useState(false);
 
   useEffect(() => {
-    const initializeSocket = async () => {
-      try {
-        const token = await AsyncStorage.getItem('token');
-        if (!token) return;
-
-        socket.current = io(API_BASE_URL, {
-          auth: { token },
-          transports: ['websocket']
-        });
-
-        socket.current.on('connect', () => {
-          console.log('Socket connected');
-        });
-
-        socket.current.on('newGroupMessage', (message: ExtendedGroupMessage) => {
-          if (message.groupId === groupId) {
-            setMessages(prev => [...prev, message]);
-          }
-        });
-
-        socket.current.on('groupMessageReaction', (data: { messageId: string, reaction: string, senderId: string }) => {
-          setMessages(prev => prev.map(msg => {
-            if (msg.messageId === data.messageId) {
-              const updatedMessage: ExtendedGroupMessage = {
-                ...msg,
-                reactions: [
-                  ...(msg.reactions || []),
-                  {
-                    messageId: data.messageId,
-                    reaction: data.reaction,
-                    senderEmail: data.senderId
-                  }
-                ]
-              };
-              return updatedMessage;
-            }
-            return msg;
-          }));
-        });
-
-        socket.current.on('groupMessageRecalled', (messageId: string) => {
-          setMessages(prev => prev.map(msg => {
-            if (msg.messageId === messageId) {
-              const updatedMessage: ExtendedGroupMessage = {
-                ...msg,
-                isRecalled: true,
-                content: 'Tin nhắn đã được thu hồi'
-              };
-              return updatedMessage;
-            }
-            return msg;
-          }));
-        });
-
-        socket.current.on('groupMessageRecallConfirmed', (data: { success: boolean, messageId: string, error?: string }) => {
-          console.log('Group message recall confirmation:', data);
-          if (!data.success) {
-            Alert.alert('Lỗi', data.error || 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
-          }
-        });
-
-        socket.current.on('groupMessageDeleted', (messageId: string) => {
-          setMessages(prev => prev.filter(msg => msg.messageId !== messageId));
-        });
-
-        loadMessages();
-
-        return () => {
-          if (socket.current) {
-            socket.current.disconnect();
-          }
-        };
-      } catch (error) {
-        console.error('Socket initialization error:', error);
-      }
-    };
-
-    initializeSocket();
-  }, [groupId]);
+    loadMessages();
+    setupSocketListeners();
+  }, []);
 
   useEffect(() => {
     const getCurrentUserEmail = async () => {
@@ -1073,6 +998,35 @@ const ChatGroupScreen = () => {
     const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
     const url = message.content.toLowerCase();
     return imageExtensions.some(ext => url.endsWith(`.${ext}`));
+  };
+
+  const setupSocketListeners = () => {
+    // Listen for new messages
+    socketService.on('newMessage', (message: any) => {
+      if (message.groupId === groupId) {
+        setMessages(prev => [...prev, message]);
+      }
+    });
+
+    // Listen for group name changes
+    socketService.on('groupNameChanged', (data: { groupId: string, newName: string }) => {
+      if (data.groupId === groupId) {
+        navigation.setParams({ groupName: data.newName });
+      }
+    });
+
+    // Listen for group avatar changes
+    socketService.on('groupAvatarChanged', (data: { groupId: string, newAvatar: string }) => {
+      if (data.groupId === groupId) {
+        navigation.setParams({ avatar: data.newAvatar });
+      }
+    });
+
+    return () => {
+      socketService.off('newMessage', () => {});
+      socketService.off('groupNameChanged', () => {});
+      socketService.off('groupAvatarChanged', () => {});
+    };
   };
 
   return (

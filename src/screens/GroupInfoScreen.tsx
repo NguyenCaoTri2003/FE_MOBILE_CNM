@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, Text, ScrollView, Alert, Image, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, SafeAreaView, TouchableOpacity, Text, ScrollView, Alert, Image, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { Avatar } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { deleteGroup, getGroup, getGroupMembers, leaveGroup, updateGroup } from '../services/api';
+import { deleteGroup, getGroup, getGroupMembers, leaveGroup, updateGroupInfo } from '../services/api';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import { API_BASE_URL } from '@env';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -27,12 +29,14 @@ type Member = {
 const GroupInfoScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
-  const { groupId, groupName: initialGroupName, avatar } = route.params as RouteParams;
+  const { groupId, groupName: initialGroupName, avatar: initialAvatar } = route.params as RouteParams;
   const [members, setMembers] = useState<Member[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState(initialGroupName);
+  const [groupAvatar, setGroupAvatar] = useState(initialAvatar);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     fetchGroupMembers();
@@ -106,15 +110,99 @@ const GroupInfoScreen = () => {
     }
 
     try {
-      await updateGroup(groupId, { name: newGroupName.trim() });
-      setShowNameModal(false);
-      // Emit socket event for name change
-      socketService.emit('groupNameChanged', {
-        groupId,
-        newName: newGroupName.trim()
-      });
+      const response = await updateGroupInfo(groupId, { name: newGroupName.trim() });
+      if (response.success) {
+        setShowNameModal(false);
+        // Emit socket event for name change
+        socketService.emit('groupNameChanged', {
+          groupId,
+          newName: newGroupName.trim()
+        });
+        // Update the group name in the UI
+        navigation.setParams({ groupName: newGroupName.trim() });
+      } else {
+        Alert.alert('Lỗi', 'Không thể đổi tên nhóm');
+      }
     } catch (error: any) {
+      console.error('Error updating group name:', error);
       Alert.alert('Lỗi', error.message || 'Không thể đổi tên nhóm');
+    }
+  };
+
+  const handlePickImage = async () => {
+    if (!isAdmin) {
+      Alert.alert('Thông báo', 'Chỉ quản trị viên mới có quyền thay đổi ảnh đại diện nhóm');
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Thông báo', 'Cần cấp quyền truy cập thư viện ảnh để thay đổi ảnh đại diện');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedImage = result.assets[0];
+        await handleUploadAvatar(selectedImage);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Lỗi', 'Không thể chọn ảnh');
+    }
+  };
+
+  const handleUploadAvatar = async (imageAsset: any) => {
+    try {
+      setIsUploading(true);
+      
+      const formData = new FormData();
+      formData.append('file', {
+        uri: imageAsset.uri,
+        type: 'image/jpeg',
+        name: 'avatar.jpg',
+      } as any);
+
+      const response = await updateGroupInfo(groupId, {
+        name: newGroupName,
+        avatar: {
+          uri: imageAsset.uri,
+          type: 'image/jpeg',
+          name: 'avatar.jpg'
+        }
+      });
+
+      if (response.success && response.data && response.data.avatar) {
+        const newAvatar = response.data.avatar;
+        setGroupAvatar(newAvatar);
+        // Emit socket event for avatar change
+        socketService.emit('groupAvatarChanged', {
+          groupId,
+          newAvatar
+        });
+        // Update navigation params
+        navigation.setParams({ 
+          avatar: newAvatar,
+          group: {
+            ...route.params,
+            avatar: newAvatar
+          }
+        });
+      } else {
+        throw new Error('Không thể cập nhật ảnh đại diện');
+      }
+    } catch (error: any) {
+      console.error('Error uploading avatar:', error);
+      Alert.alert('Lỗi', error.message || 'Không thể tải lên ảnh đại diện');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -134,12 +222,22 @@ const GroupInfoScreen = () => {
           <View style={styles.groupAvatarContainer}>
             <Avatar
               rounded
-              source={{ uri: avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+              source={{ uri: groupAvatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
               size={100}
             />
-            <TouchableOpacity style={styles.changeAvatarButton}>
-              <Ionicons name="camera" size={24} color="#fff" />
-            </TouchableOpacity>
+            {isAdmin && (
+              <TouchableOpacity 
+                style={styles.changeAvatarButton}
+                onPress={handlePickImage}
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Ionicons name="camera" size={24} color="#fff" />
+                )}
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.groupNameContainer}>
             <View style={styles.groupNameWrapper}>
@@ -256,7 +354,10 @@ const GroupInfoScreen = () => {
         visible={showNameModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowNameModal(false)}
+        onRequestClose={() => {
+          setShowNameModal(false);
+          setNewGroupName(initialGroupName);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -266,8 +367,13 @@ const GroupInfoScreen = () => {
               value={newGroupName}
               onChangeText={setNewGroupName}
               placeholder="Nhập tên nhóm mới"
+              placeholderTextColor="#999"
               autoFocus
+              maxLength={50}
+              returnKeyType="done"
+              onSubmitEditing={handleChangeGroupName}
             />
+            <Text style={styles.charCount}>{newGroupName.length}/50</Text>
             <View style={styles.modalButtons}>
               <TouchableOpacity 
                 style={[styles.modalButton, styles.cancelButton]}
@@ -279,10 +385,11 @@ const GroupInfoScreen = () => {
                 <Text style={styles.cancelButtonText}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.modalButton, styles.saveButton]}
+                style={[styles.modalButton, styles.saveButton, !newGroupName.trim() && styles.disabledButton]}
                 onPress={handleChangeGroupName}
+                disabled={!newGroupName.trim()}
               >
-                <Text style={styles.saveButtonText}>Lưu</Text>
+                <Text style={[styles.saveButtonText, !newGroupName.trim() && styles.disabledButtonText]}>Lưu</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -457,6 +564,13 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     borderRadius: 5,
     padding: 10,
+    marginBottom: 5,
+    fontSize: 16,
+  },
+  charCount: {
+    textAlign: 'right',
+    color: '#999',
+    fontSize: 12,
     marginBottom: 15,
   },
   modalButtons: {
@@ -482,6 +596,12 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: 'white',
     textAlign: 'center',
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+  },
+  disabledButtonText: {
+    color: '#666',
   },
 });
 
