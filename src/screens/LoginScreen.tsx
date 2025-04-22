@@ -57,8 +57,9 @@ const LoginScreen = () => {
       
       // Nếu đăng nhập thành công
       if (response.success) {
-        // Lưu token
+        // Lưu token và email
         await AsyncStorage.setItem('token', response.token);
+        await AsyncStorage.setItem('userEmail', identifier);
         
         // Chuyển tới màn hình tin nhắn
         navigation.reset({

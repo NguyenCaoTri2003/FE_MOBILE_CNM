@@ -716,4 +716,20 @@ export const addReactionToGroupMessage = async (messageId: string, reaction: str
   } catch (error: any) {
     throw error.response?.data || error;
   }
+};
+
+export interface GroupMembersResponse {
+  success: boolean;
+  data: {
+    members: GroupMember[];
+  };
+}
+
+export const getGroupMembers = async (groupId: string): Promise<GroupMembersResponse> => {
+  try {
+    const response = await api.get(`/groups/${groupId}/members`);
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
 }; 

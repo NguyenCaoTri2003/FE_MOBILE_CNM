@@ -741,7 +741,14 @@ const ChatGroupScreen = () => {
           <TouchableOpacity style={styles.headerIcon}>
             <Ionicons name="videocam" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon}>
+          <TouchableOpacity 
+            style={styles.headerIcon} 
+            onPress={() => navigation.navigate('GroupInfo', { 
+              groupId,
+              groupName,
+              avatar
+            })}
+          >
             <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
