@@ -180,6 +180,13 @@ const ChatGroupScreen = () => {
           }));
         });
 
+        socket.current.on('groupMessageRecallConfirmed', (data: { success: boolean, messageId: string, error?: string }) => {
+          console.log('Group message recall confirmation:', data);
+          if (!data.success) {
+            Alert.alert('Lỗi', data.error || 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+          }
+        });
+
         socket.current.on('groupMessageDeleted', (messageId: string) => {
           setMessages(prev => prev.filter(msg => msg.messageId !== messageId));
         });
@@ -527,24 +534,19 @@ const ChatGroupScreen = () => {
   const handleRecall = async (messageId: string) => {
     try {
       const response = await recallGroupMessage(groupId, messageId);
-      const recalledMessage = response as ExtendedGroupMessage;
-      setMessages(prev => 
-        prev.map(msg => {
-          if (msg.messageId === messageId) {
-            return {
-              ...msg,
-              ...recalledMessage,
-              reactions: msg.reactions || []
-            } as ExtendedGroupMessage;
-          }
-          return msg;
-        })
-      );
-      setShowMessageActions(false);
-      Alert.alert('Thành công', 'Tin nhắn đã được thu hồi');
-    } catch (error) {
+      if (response) {
+        setMessages((prevMessages: ExtendedGroupMessage[]) => 
+          prevMessages.map((msg: ExtendedGroupMessage) => 
+            msg.messageId === messageId 
+              ? { ...msg, isRecalled: true, content: 'Tin nhắn đã được thu hồi' }
+              : msg
+          )
+        );
+        Alert.alert('Thành công', 'Đã thu hồi tin nhắn');
+      }
+    } catch (error: any) {
       console.error('Error recalling message:', error);
-      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn');
+      Alert.alert('Lỗi', error.message || 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
     }
   };
 
@@ -656,7 +658,8 @@ const ChatGroupScreen = () => {
             />
           )}
           <View style={[styles.messageBubble, styles.recalledBubble]}>
-            <Text style={styles.recalledText}>Tin nhắn đã được thu hồi</Text>
+            <Text style={styles.recalledText}>{item.content}</Text>
+            <Text style={styles.recalledLabel}>Tin nhắn đã được thu hồi</Text>
           </View>
         </View>
       );
@@ -1421,6 +1424,12 @@ const styles = StyleSheet.create({
   forwardGroupMembers: {
     fontSize: 12,
     color: '#666',
+  },
+  recalledLabel: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 4,
   },
 });
 

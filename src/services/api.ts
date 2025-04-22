@@ -676,9 +676,18 @@ export const sendGroupMessage = async (
 export const recallGroupMessage = async (groupId: string, messageId: string): Promise<Message> => {
   try {
     const response = await api.put(`/groups/${groupId}/messages/${messageId}/recall`);
-    return response.data;
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Không thể thu hồi tin nhắn');
+    }
+    return response.data.data;
   } catch (error: any) {
-    throw error.response?.data || error;
+    if (error.response) {
+      throw new Error(error.response.data.message || 'Lỗi server');
+    } else if (error.request) {
+      throw new Error('Không thể kết nối đến server');
+    } else {
+      throw new Error(error.message || 'Đã có lỗi xảy ra');
+    }
   }
 };
 
@@ -746,5 +755,47 @@ export const forwardGroupMessage = async (groupId: string, messageId: string, ta
     return response.data;
   } catch (error: any) {
     throw error.response?.data || error;
+  }
+};
+
+// Thêm interface cho file avatar
+interface AvatarFile {
+  uri: string;
+  type?: string;
+  name?: string;
+}
+
+// Thêm hàm mới để cập nhật thông tin nhóm với avatar
+export const updateGroupInfo = async (
+  groupId: string,
+  data: {
+    name?: string;
+    avatar?: AvatarFile;
+  }
+): Promise<GroupResponse> => {
+  try {
+    const formData = new FormData();
+    
+    if (data.name) {
+      formData.append('name', data.name);
+    }
+    
+    if (data.avatar) {
+      formData.append('file', {
+        uri: data.avatar.uri,
+        type: data.avatar.type || 'image/jpeg',
+        name: data.avatar.name || 'avatar.jpg',
+      } as any);
+    }
+    
+    const response = await api.put(`/groups/${groupId}/info`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    return response.data;
+  } catch (error) {
+    throw error;
   }
 }; 
