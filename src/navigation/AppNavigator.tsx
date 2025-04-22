@@ -16,7 +16,7 @@ import FriendRequestsScreen from '../screens/FriendRequestsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import CreateGroupScreen from '../screens/CreateGroupScreen';
 import ChatGroupScreen from '../screens/ChatGroupScreen';
-import GroupInfoScreen from '../screens/GroupInfoScreen';
+import GroupInfoScreen  from '../screens/GroupInfoScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -147,12 +147,12 @@ const AppNavigator = () => {
           }}
         />
         <Stack.Screen 
-          name="GroupInfo" 
-          component={GroupInfoScreen}
-          options={{
-            headerShown: false,
-          }}
-        />
+           name="GroupInfo" 
+           component={GroupInfoScreen}
+           options={{
+             headerShown: false,
+           }}
+         />
       </Stack.Navigator>
     </NavigationContainer>
   );

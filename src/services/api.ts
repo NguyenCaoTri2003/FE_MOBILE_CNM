@@ -673,15 +673,12 @@ export const sendGroupMessage = async (
   }
 };
 
-export const recallGroupMessage = async (
-  groupId: string,
-  messageId: string
-): Promise<GroupMessage> => {
+export const recallGroupMessage = async (groupId: string, messageId: string): Promise<Message> => {
   try {
     const response = await api.put(`/groups/${groupId}/messages/${messageId}/recall`);
-    return response.data.data;
-  } catch (error) {
-    throw error;
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data || error;
   }
 };
 
@@ -696,9 +693,9 @@ export const deleteGroupMessage = async (
   }
 };
 
-export const uploadGroupFile = async (formData: FormData) => {
+export const uploadGroupFile = async (groupId: string, formData: FormData) => {
   try {
-    const response = await api.post('/upload-group-file', formData, {
+    const response = await api.post(`/groups/${groupId}/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -709,27 +706,45 @@ export const uploadGroupFile = async (formData: FormData) => {
   }
 };
 
-export const addReactionToGroupMessage = async (messageId: string, reaction: string): Promise<Message> => {
+export const getGroupFile = async (groupId: string, filename: string, type: 'image' | 'file') => {
   try {
-    const response = await api.post(`/group-messages/${messageId}/reactions`, { reaction });
+    const response = await api.get(`/groups/${groupId}/files/${filename}`, {
+      params: { type },
+      responseType: 'blob'
+    });
     return response.data;
   } catch (error: any) {
     throw error.response?.data || error;
   }
 };
 
-export interface GroupMembersResponse {
-  success: boolean;
-  data: {
-    members: GroupMember[];
-  };
-}
+export const addReactionToGroupMessage = async (groupId: string, messageId: string, reaction: string): Promise<Message> => {
+  try {
+    const response = await api.post(`/groups/${groupId}/messages/${messageId}/reactions`, { 
+      reaction
+    });
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data || error;
+  }
+};
 
-export const getGroupMembers = async (groupId: string): Promise<GroupMembersResponse> => {
+export const getGroupMembers = async (groupId: string): Promise<{ success: boolean; data: { members: GroupMember[] } }> => {
   try {
     const response = await api.get(`/groups/${groupId}/members`);
     return response.data;
   } catch (error) {
     throw error;
+  }
+};
+
+export const forwardGroupMessage = async (groupId: string, messageId: string, targetGroupId: string): Promise<Message> => {
+  try {
+    const response = await api.post(`/groups/${groupId}/messages/${messageId}/forward`, {
+      targetGroupId
+    });
+    return response.data;
+  } catch (error: any) {
+    throw error.response?.data || error;
   }
 }; 

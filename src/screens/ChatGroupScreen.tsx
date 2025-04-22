@@ -12,17 +12,17 @@ import {
   addReactionToGroupMessage,
   recallGroupMessage, 
   deleteGroupMessage,
-  GroupMessagesResponse,
-  SendMessageResponse,
   Message,
-  searchUsers
+  searchUsers,
+  getGroupMembers,
+  getGroups,
+  forwardGroupMessage
 } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import { API_BASE_URL } from '@env';
@@ -86,6 +86,20 @@ const isAddReactionResponse = (response: any): response is AddReactionResponse =
   return response && typeof response.success === 'boolean' && response.data;
 };
 
+interface Group {
+  groupId: string;
+  name: string;
+  description?: string;
+  avatar?: string;
+  members: any[];
+  createdAt: string;
+  lastMessage?: {
+    content: string;
+    senderEmail: string;
+    timestamp: string;
+  };
+}
+
 const ChatGroupScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
@@ -106,6 +120,10 @@ const ChatGroupScreen = () => {
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [userAvatars, setUserAvatars] = useState<{ [key: string]: string }>({});
+  const [memberCount, setMemberCount] = useState<number>(0);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [selectedMessageForForward, setSelectedMessageForForward] = useState<ExtendedGroupMessage | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
 
   useEffect(() => {
     const initializeSocket = async () => {
@@ -195,6 +213,41 @@ const ChatGroupScreen = () => {
       }
     };
     getCurrentUserEmail();
+  }, []);
+
+  useEffect(() => {
+    const loadGroupMembers = async () => {
+      try {
+        const response = await getGroupMembers(groupId);
+        if (response.success) {
+          setMemberCount(response.data.members.length);
+        }
+      } catch (error) {
+        console.error('Error loading group members:', error);
+      }
+    };
+
+    loadGroupMembers();
+  }, [groupId]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    const loadGroups = async () => {
+      try {
+        const response = await getGroups();
+        if (response.success) {
+          setGroups(response.data);
+        }
+      } catch (error) {
+        console.error('Error loading groups:', error);
+      }
+    };
+    loadGroups();
   }, []);
 
   const fetchUserAvatar = async (email: string) => {
@@ -318,13 +371,13 @@ const ChatGroupScreen = () => {
         name: fileAsset.name,
       } as any);
 
-      const response = await uploadGroupFile(formData);
+      const response = await uploadGroupFile(groupId, formData);
       
       if (response.success) {
         const messageResponse = await sendGroupMessage(
           groupId,
           response.data.url,
-          'file',
+          response.data.type,
           {
             fileName: fileAsset.name,
             fileSize: fileAsset.size || 0,
@@ -337,6 +390,7 @@ const ChatGroupScreen = () => {
           if (!token) return;
 
           const decoded = jwtDecode<{ email: string; id: string }>(token);
+          const avatar = await fetchUserAvatar(decoded.email);
           const newMessageWithInfo: ExtendedGroupMessage = {
             ...messageResponse.data,
             groupId,
@@ -346,9 +400,9 @@ const ChatGroupScreen = () => {
             createdAt: new Date().toISOString(),
             status: 'sent',
             senderName: decoded.email,
-            senderAvatar: response.data.sender?.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
+            senderAvatar: avatar,
             isCurrentUser: true,
-            type: 'file',
+            type: response.data.type,
             metadata: {
               fileName: fileAsset.name,
               fileSize: fileAsset.size || 0,
@@ -392,7 +446,7 @@ const ChatGroupScreen = () => {
           name: 'image.jpg',
         } as any);
 
-        const response = await uploadGroupFile(formData);
+        const response = await uploadGroupFile(groupId, formData);
         
         if (response.success) {
           const messageResponse = await sendGroupMessage(
@@ -411,6 +465,7 @@ const ChatGroupScreen = () => {
             if (!token) return;
 
             const decoded = jwtDecode<{ email: string; id: string }>(token);
+            const avatar = await fetchUserAvatar(decoded.email);
             const newMessageWithInfo: ExtendedGroupMessage = {
               ...messageResponse.data,
               groupId,
@@ -420,7 +475,7 @@ const ChatGroupScreen = () => {
               createdAt: new Date().toISOString(),
               status: 'sent',
               senderName: decoded.email,
-              senderAvatar: response.data.sender?.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
+              senderAvatar: avatar,
               isCurrentUser: true,
               type: 'image',
               metadata: {
@@ -443,7 +498,7 @@ const ChatGroupScreen = () => {
 
   const handleReaction = async (messageId: string, emoji: string) => {
     try {
-      const response = await addReactionToGroupMessage(messageId, emoji);
+      const response = await addReactionToGroupMessage(groupId, messageId, emoji);
       const updatedMessage = response as ExtendedGroupMessage;
       setMessages(prev => 
         prev.map(msg => {
@@ -486,8 +541,10 @@ const ChatGroupScreen = () => {
         })
       );
       setShowMessageActions(false);
+      Alert.alert('Thành công', 'Tin nhắn đã được thu hồi');
     } catch (error) {
       console.error('Error recalling message:', error);
+      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn');
     }
   };
 
@@ -506,6 +563,74 @@ const ChatGroupScreen = () => {
       Alert.alert('Thành công', 'Đã sao chép văn bản');
     }
     setShowReactions(false);
+  };
+
+  const handleForward = async (targetGroupId: string) => {
+    if (!selectedMessageForForward) return;
+
+    try {
+      await forwardGroupMessage(groupId, selectedMessageForForward.messageId, targetGroupId);
+      setShowForwardModal(false);
+      setSelectedMessageForForward(null);
+      Alert.alert('Thành công', 'Tin nhắn đã được chuyển tiếp');
+    } catch (error) {
+      console.error('Error forwarding message:', error);
+      Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn');
+    }
+  };
+
+  const renderForwardModal = () => {
+    return (
+      <Modal
+        visible={showForwardModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowForwardModal(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowForwardModal(false)}
+        >
+          <View style={styles.forwardModal}>
+            <Text style={styles.forwardModalTitle}>Chọn nhóm để chuyển tiếp</Text>
+            <FlatList
+              data={groups.filter(g => g.groupId !== groupId)}
+              keyExtractor={(item) => item.groupId}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.forwardGroupItem}
+                  onPress={() => handleForward(item.groupId)}
+                >
+                  <Avatar
+                    rounded
+                    source={{ uri: item.avatar }}
+                    size={40}
+                  />
+                  <View style={styles.forwardGroupInfo}>
+                    <Text style={styles.forwardGroupName}>{item.name}</Text>
+                    <Text style={styles.forwardGroupMembers}>
+                      {item.members.length} thành viên
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    );
+  };
+
+  const handleMessageAction = (message: ExtendedGroupMessage, action: string) => {
+    if (action === 'forward') {
+      setSelectedMessageForForward(message);
+      setShowForwardModal(true);
+    } else if (action === 'copy') {
+      handleCopyText(message);
+    } else if (action === 'recall') {
+      handleRecall(message.messageId);
+    }
   };
 
   const renderMessage = ({ item }: { item: ExtendedGroupMessage }) => {
@@ -709,6 +834,49 @@ const ChatGroupScreen = () => {
     );
   };
 
+  const renderMessageActions = () => {
+    if (!selectedMessageForActions) return null;
+
+    return (
+      <Modal
+        visible={showMessageActions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMessageActions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMessageActions(false)}
+        >
+          <View style={styles.messageActionsMenu}>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => handleMessageAction(selectedMessageForActions, 'recall')}
+            >
+              <Ionicons name="refresh-outline" size={24} color="#0068ff" />
+              <Text style={styles.messageActionText}>Thu hồi</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => handleMessageAction(selectedMessageForActions, 'forward')}
+            >
+              <Ionicons name="share-outline" size={24} color="#0068ff" />
+              <Text style={styles.messageActionText}>Chuyển tiếp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.messageActionButton}
+              onPress={() => handleMessageAction(selectedMessageForActions, 'copy')}
+            >
+              <Ionicons name="copy-outline" size={24} color="#0068ff" />
+              <Text style={styles.messageActionText}>Sao chép</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
@@ -728,7 +896,7 @@ const ChatGroupScreen = () => {
             <View style={styles.nameContainer}>
               <Text style={styles.userName}>{groupName}</Text>
               <Text style={styles.lastSeen}>
-                {messages.length} thành viên
+                {memberCount} thành viên
               </Text>
             </View>
           </View>
@@ -742,7 +910,7 @@ const ChatGroupScreen = () => {
             <Ionicons name="videocam" size={24} color="#fff" />
           </TouchableOpacity>
           <TouchableOpacity 
-            style={styles.headerIcon} 
+            style={styles.headerIcon}
             onPress={() => navigation.navigate('GroupInfo', { 
               groupId,
               groupName,
@@ -769,6 +937,10 @@ const ChatGroupScreen = () => {
           contentContainerStyle={styles.messagesList}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 10
+          }}
         />
 
         {/* Emoji Picker */}
@@ -879,36 +1051,8 @@ const ChatGroupScreen = () => {
         </TouchableOpacity>
       </Modal>
 
-      {/* Message Actions Modal */}
-      <Modal
-        visible={showMessageActions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowMessageActions(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowMessageActions(false)}
-        >
-          <View style={styles.messageActionsMenu}>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => selectedMessageForActions && handleRecall(selectedMessageForActions.messageId)}
-            >
-              <Ionicons name="refresh-outline" size={24} color="#0068ff" />
-              <Text style={styles.messageActionText}>Thu hồi</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => selectedMessageForActions && handleDelete(selectedMessageForActions.messageId)}
-            >
-              <Ionicons name="trash-outline" size={24} color="#ff3b30" />
-              <Text style={[styles.messageActionText, { color: '#ff3b30' }]}>Xóa</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {renderMessageActions()}
+      {renderForwardModal()}
     </SafeAreaView>
   );
 };
@@ -1245,6 +1389,38 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     fontSize: 16,
     color: '#0068ff',
+  },
+  forwardModal: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  forwardModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  forwardGroupItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  forwardGroupInfo: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  forwardGroupName: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  forwardGroupMembers: {
+    fontSize: 12,
+    color: '#666',
   },
 });
 
