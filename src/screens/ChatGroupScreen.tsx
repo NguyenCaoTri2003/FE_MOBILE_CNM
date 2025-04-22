@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal } from 'react-native';
+import { View, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal, ActivityIndicator } from 'react-native';
 import { Text, Avatar } from '@rneui/themed';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +16,8 @@ import {
   searchUsers,
   getGroupMembers,
   getGroups,
-  forwardGroupMessage
+  forwardGroupMessage,
+  getFriends
 } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -34,6 +35,14 @@ type RouteParams = {
   groupId: string;
   groupName: string;
   avatar: string;
+};
+
+type ChatRouteParams = {
+  receiverEmail: string;
+  fullName: string;
+  avatar: string;
+  lastSeen?: string;
+  messageToForward?: ExtendedGroupMessage;
 };
 
 const EMOJIS = [
@@ -100,6 +109,27 @@ interface Group {
   };
 }
 
+interface Friend {
+  email: string;
+  fullName: string;
+  avatar: string;
+}
+
+interface ForwardItem {
+  id: string;
+  name: string;
+  avatar: string | undefined;
+  subtext: string;
+  type: 'friend' | 'group';
+  data: Friend | Group;
+}
+
+interface ForwardResponse {
+  success: boolean;
+  message?: string;
+  data?: any;
+}
+
 const ChatGroupScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
@@ -124,6 +154,9 @@ const ChatGroupScreen = () => {
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedMessageForForward, setSelectedMessageForForward] = useState<ExtendedGroupMessage | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [forwardTab, setForwardTab] = useState<'friends' | 'groups'>('friends');
+  const [isLoadingForward, setIsLoadingForward] = useState(false);
 
   useEffect(() => {
     const initializeSocket = async () => {
@@ -256,6 +289,34 @@ const ChatGroupScreen = () => {
     };
     loadGroups();
   }, []);
+
+  useEffect(() => {
+    const loadForwardData = async () => {
+      if (showForwardModal) {
+        setIsLoadingForward(true);
+        try {
+          const [friendsResponse, groupsResponse] = await Promise.all([
+            getFriends(),
+            getGroups()
+          ]);
+          
+          if (friendsResponse.success) {
+            setFriends(friendsResponse.data);
+          }
+          if (groupsResponse.success) {
+            setGroups(groupsResponse.data.filter(g => g.groupId !== groupId));
+          }
+        } catch (error) {
+          console.error('Error loading forward data:', error);
+          Alert.alert('Lỗi', 'Không thể tải danh sách bạn bè và nhóm');
+        } finally {
+          setIsLoadingForward(false);
+        }
+      }
+    };
+
+    loadForwardData();
+  }, [showForwardModal, groupId]);
 
   const fetchUserAvatar = async (email: string) => {
     try {
@@ -505,6 +566,16 @@ const ChatGroupScreen = () => {
 
   const handleReaction = async (messageId: string, emoji: string) => {
     try {
+      if (emoji === '↪️') {
+        // Nếu là emoji forward, tìm tin nhắn và chuyển tiếp
+        const messageToForward = messages.find(msg => msg.messageId === messageId);
+        if (messageToForward) {
+          setSelectedMessageForForward(messageToForward);
+          setShowForwardModal(true);
+        }
+        return;
+      }
+
       const response = await addReactionToGroupMessage(groupId, messageId, emoji);
       const updatedMessage = response as ExtendedGroupMessage;
       setMessages(prev => 
@@ -581,6 +652,73 @@ const ChatGroupScreen = () => {
     }
   };
 
+  const getForwardItems = (): ForwardItem[] => {
+    const friendItems: ForwardItem[] = friends.map(friend => ({
+      id: friend.email,
+      name: friend.fullName,
+      avatar: friend.avatar,
+      subtext: friend.email,
+      type: 'friend',
+      data: friend
+    }));
+
+    const groupItems: ForwardItem[] = groups
+      .filter(g => g.groupId !== groupId)
+      .map(group => ({
+        id: group.groupId,
+        name: group.name,
+        avatar: group.avatar,
+        subtext: `${group.members.length} thành viên`,
+        type: 'group',
+        data: group
+      }));
+
+    return [...friendItems, ...groupItems];
+  };
+
+  const handleForwardItemPress = async (item: ForwardItem) => {
+    console.log('Forwarding message to:', item);
+    console.log('Selected message:', selectedMessageForForward);
+    
+    if (!selectedMessageForForward) {
+      console.log('No message selected for forwarding');
+      return;
+    }
+
+    try {
+      if (item.type === 'friend') {
+        console.log('Forwarding to friend:', item.data);
+        const friend = item.data as Friend;
+        // Close modal before navigating
+        setShowForwardModal(false);
+        setSelectedMessageForForward(null);
+        // Navigate to chat with the message to forward
+        navigation.navigate('Chat', {
+          receiverEmail: friend.email,
+          fullName: friend.fullName,
+          avatar: friend.avatar,
+          messageToForward: selectedMessageForForward
+        } as ChatRouteParams);
+      } else {
+        console.log('Forwarding to group:', item.data);
+        const group = item.data as Group;
+        try {
+          await forwardGroupMessage(groupId, selectedMessageForForward.messageId, group.groupId);
+          Alert.alert('Thành công', 'Tin nhắn đã được chuyển tiếp');
+          setShowForwardModal(false);
+          setSelectedMessageForForward(null);
+        } catch (forwardError: any) {
+          console.error('Forward error:', forwardError);
+          Alert.alert('Lỗi', forwardError.message || 'Không thể chuyển tiếp tin nhắn');
+          return;
+        }
+      }
+    } catch (error: any) {
+      console.error('Error in handleForwardItemPress:', error);
+      Alert.alert('Lỗi', error.message || 'Không thể chuyển tiếp tin nhắn');
+    }
+  };
+
   const renderForwardModal = () => {
     return (
       <Modal
@@ -595,29 +733,38 @@ const ChatGroupScreen = () => {
           onPress={() => setShowForwardModal(false)}
         >
           <View style={styles.forwardModal}>
-            <Text style={styles.forwardModalTitle}>Chọn nhóm để chuyển tiếp</Text>
-            <FlatList
-              data={groups.filter(g => g.groupId !== groupId)}
-              keyExtractor={(item) => item.groupId}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.forwardGroupItem}
-                  onPress={() => handleForward(item.groupId)}
-                >
-                  <Avatar
-                    rounded
-                    source={{ uri: item.avatar }}
-                    size={40}
-                  />
-                  <View style={styles.forwardGroupInfo}>
-                    <Text style={styles.forwardGroupName}>{item.name}</Text>
-                    <Text style={styles.forwardGroupMembers}>
-                      {item.members.length} thành viên
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-            />
+            <Text style={styles.forwardModalTitle}>Chuyển tiếp tin nhắn</Text>
+            
+            {isLoadingForward ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#0068ff" />
+              </View>
+            ) : (
+              <FlatList<ForwardItem>
+                data={getForwardItems()}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.forwardItem}
+                    onPress={() => handleForwardItemPress(item)}
+                  >
+                    <Avatar
+                      rounded
+                      source={item.avatar ? { uri: item.avatar } : undefined}
+                      size={40}
+                    />
+                    <View style={styles.forwardItemInfo}>
+                      <Text style={styles.forwardItemName}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.forwardItemSubtext}>
+                        {item.subtext}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1043,6 +1190,10 @@ const ChatGroupScreen = () => {
                   } else if (reaction.type === 'action') {
                     if (reaction.name === 'copy') {
                       handleCopyText(selectedMessage);
+                    } else if (reaction.name === 'forward') {
+                      setSelectedMessageForForward(selectedMessage);
+                      setShowForwardModal(true);
+                      setShowReactions(false);
                     }
                   }
                 }}
@@ -1406,24 +1557,31 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     textAlign: 'center',
   },
-  forwardGroupItem: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  forwardItem: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  forwardGroupInfo: {
+  forwardItemInfo: {
     marginLeft: 10,
     flex: 1,
   },
-  forwardGroupName: {
+  forwardItemName: {
     fontSize: 16,
     fontWeight: '500',
   },
-  forwardGroupMembers: {
+  forwardItemSubtext: {
     fontSize: 12,
     color: '#666',
+    marginTop: 2,
   },
   recalledLabel: {
     fontSize: 12,

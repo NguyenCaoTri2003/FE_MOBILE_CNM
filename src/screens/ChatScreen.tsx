@@ -36,6 +36,7 @@ type RouteParams = {
   fullName: string;
   avatar: string;
   lastSeen?: string;
+  messageToForward?: Message;
 };
 
 const EMOJIS = [
@@ -85,7 +86,7 @@ const REACTIONS = [
 const ChatScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
-  const { receiverEmail, fullName, avatar, lastSeen } = route.params as RouteParams;
+  const { receiverEmail, fullName, avatar, lastSeen, messageToForward } = route.params as RouteParams;
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -816,6 +817,9 @@ const ChatScreen = () => {
       );
 
       if (response.success) {
+        // Add the forwarded message to the messages state
+        setMessages(prevMessages => [...prevMessages, response.data]);
+        
         // Emit socket event for the forwarded message
         if (socket.current) {
           socket.current.emit('newMessage', {
@@ -1165,6 +1169,13 @@ const ChatScreen = () => {
       handleScreenFocus();
     }
   };
+
+  // Add useEffect to handle forwarded message
+  useEffect(() => {
+    if (messageToForward) {
+      handleForwardMessage(messageToForward, receiverEmail);
+    }
+  }, [messageToForward]);
 
   return (
     <SafeAreaView style={styles.container}>
