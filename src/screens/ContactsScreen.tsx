@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ScrollView, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ScrollView, ActivityIndicator, Alert, Modal, Image } from 'react-native';
 import { Text, Avatar, Tab, TabView } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendRequest, withdrawFriendRequest, getFriends, unfriend } from '../services/api';
-import type { FriendRequest as BaseFriendRequest } from '../services/api';
+import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendRequest, withdrawFriendRequest, getFriends, unfriend, getGroups } from '../services/api';
+import type { FriendRequest as BaseFriendRequest, Group } from '../services/api';
 import { socketService } from '../services/socket';
 
 // Add type definitions at the top of the file
@@ -88,6 +88,8 @@ const ContactsScreen = () => {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
 
   useEffect(() => {
     // Try to load from cache first
@@ -258,6 +260,24 @@ const ContactsScreen = () => {
       unsubscribe();
     };
   }, [navigation]);
+
+  useEffect(() => {
+    loadGroups();
+  }, []);
+
+  const loadGroups = async () => {
+    setIsLoadingGroups(true);
+    try {
+      const response = await getGroups();
+      if (response.success) {
+        setGroups(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading groups:', error);
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
 
   const debouncedSearch = useCallback(
     debounce(async (query: string) => {
@@ -674,6 +694,24 @@ const ContactsScreen = () => {
     );
   };
 
+  const formatTime = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (minutes < 60) {
+      return `${minutes} phút`;
+    } else if (hours < 24) {
+      return `${hours} giờ`;
+    } else if (days < 7) {
+      return `${days} ngày`;
+    } else {
+      return 'T' + date.getDay();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
@@ -798,9 +836,96 @@ const ContactsScreen = () => {
               </TabView.Item>
 
               <TabView.Item style={styles.tabContent}>
-                <View style={styles.emptyContent}>
-                  <Text>Danh sách nhóm</Text>
-                </View>
+                <ScrollView style={styles.groupContainer}>
+                  {/* Create Group Button */}
+                  <TouchableOpacity 
+                    style={styles.createGroupButton}
+                    onPress={() => navigation.navigate('CreateGroup')}
+                  >
+                    <View style={styles.createGroupIcon}>
+                      <Ionicons name="people" size={20} color="#fff" />
+                      <Ionicons name="add" size={14} color="#fff" style={styles.addIcon} />
+                    </View>
+                    <View style={styles.createGroupTextContainer}>
+                      <Text style={styles.createGroupText}>Tạo nhóm mới</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Group Features */}
+                  <View style={styles.groupFeatures}>
+                    <TouchableOpacity style={styles.featureItem}>
+                      <View style={[styles.featureIcon, { backgroundColor: '#2ecc71' }]}>
+                        <Ionicons name="calendar" size={20} color="#fff" />
+                      </View>
+                      <Text style={styles.featureText}>Lịch</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.featureItem}>
+                      <View style={[styles.featureIcon, { backgroundColor: '#e74c3c' }]}>
+                        <Ionicons name="alarm" size={20} color="#fff" />
+                      </View>
+                      <Text style={styles.featureText}>Nhắc hẹn</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.featureItem}>
+                      <View style={[styles.featureIcon, { backgroundColor: '#3498db' }]}>
+                        <Ionicons name="people" size={20} color="#fff" />
+                      </View>
+                      <Text style={styles.featureText}>Nhóm Offline</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.featureItem}>
+                      <View style={[styles.featureIcon, { backgroundColor: '#9b59b6' }]}>
+                        <Ionicons name="images" size={20} color="#fff" />
+                      </View>
+                      <Text style={styles.featureText}>Chia sẻ ảnh</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Joined Groups Section */}
+                  <View style={styles.joinedGroupsSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionTitle}>Nhóm đang tham gia ({groups.length})</Text>
+                      <TouchableOpacity style={styles.sortButton}>
+                        <Text style={styles.sortText}>Sắp xếp</Text>
+                        <Ionicons name="swap-vertical" size={16} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Group List */}
+                    {isLoadingGroups ? (
+                      <ActivityIndicator size="large" color="#0068ff" style={{padding: 20}} />
+                    ) : (
+                      <View>
+                        {groups.map((group) => (
+                          <View key={group.groupId} style={styles.groupItem}>
+                            {group.avatar ? (
+                              <Image 
+                                source={{ uri: group.avatar }} 
+                                style={styles.groupAvatar}
+                              />
+                            ) : (
+                              <View style={[styles.groupAvatar, styles.noAvatarPlaceholder]}>
+                                <Text style={styles.avatarLetter}>
+                                  {group.name.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                            <View style={styles.groupItemContent}>
+                              <Text style={styles.groupName}>{group.name}</Text>
+                              <Text style={styles.groupLastMessage}>
+                                {group.lastMessage ? group.lastMessage.content : 'Chưa có tin nhắn'}
+                              </Text>
+                              <Text style={styles.groupTime}>
+                                {group.lastMessage ? formatTime(new Date(group.lastMessage.timestamp)) : ''}
+                              </Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </ScrollView>
               </TabView.Item>
 
               <TabView.Item style={styles.tabContent}>
@@ -1290,7 +1415,137 @@ const styles = StyleSheet.create({
     color: 'red',
     fontSize: 16,
     marginLeft: 15
-  }
+  },
+  groupContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  createGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  createGroupIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#0068ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  addIcon: {
+    position: 'absolute',
+    right: -5,
+    bottom: -5,
+    backgroundColor: '#0068ff',
+    borderRadius: 8,
+  },
+  createGroupTextContainer: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  createGroupText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  groupFeatures: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 8,
+    backgroundColor: '#fff',
+    marginTop: 8,
+  },
+  featureItem: {
+    width: '25%',
+    padding: 8,
+    alignItems: 'center',
+  },
+  featureIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  featureText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  joinedGroupsSection: {
+    marginTop: 8,
+    backgroundColor: '#fff',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sortText: {
+    fontSize: 14,
+    color: '#666',
+    marginRight: 4,
+  },
+  groupItem: {
+    flexDirection: 'row',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  groupAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
+  },
+  groupItemContent: {
+    flex: 1,
+  },
+  groupName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  groupLastMessage: {
+    fontSize: 14,
+    color: '#666',
+  },
+  groupTime: {
+    fontSize: 12,
+    color: '#999',
+    position: 'absolute',
+    right: 12,
+    top: 12,
+  },
+  noAvatarPlaceholder: {
+    backgroundColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarLetter: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#666',
+  },
 });
 
 export default ContactsScreen; 

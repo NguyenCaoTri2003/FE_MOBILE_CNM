@@ -5,16 +5,33 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { getFriends, getMessages, Message, Friend } from '../services/api';
+import { getFriends, getMessages, Message, Friend, getGroups, Group } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { jwtDecode } from 'jwt-decode';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 interface Conversation {
-  email: string;
-  fullName: string;
-  avatar: string;
-  lastMessage?: Message;
+  id: string;
+  type: 'personal' | 'group';
+  name: string;
+  avatar?: string;
+  lastMessage?: {
+    content: string;
+    senderEmail?: string;
+    timestamp: string;
+    type?: string;
+    metadata?: any;
+  };
   unreadCount?: number;
+}
+
+interface ExtendedGroup extends Group {
+  messages?: Array<{
+    content: string;
+    senderEmail: string;
+    createdAt: string;
+  }>;
 }
 
 const MessagesScreen = () => {
@@ -31,54 +48,136 @@ const MessagesScreen = () => {
   const loadConversations = async () => {
     try {
       setLoading(true);
-      const friendsResponse = await getFriends();
+      
+      // Load both friends and groups in parallel
+      const [friendsResponse, groupsResponse] = await Promise.all([
+        getFriends(),
+        getGroups()
+      ]);
+
+      let allConversations: Conversation[] = [];
+
+      // Process personal conversations
       if (friendsResponse.success) {
         const friends = friendsResponse.data;
-        
-        // Load last message for each conversation
-        const conversationsWithMessages = await Promise.all(
+        const personalConversations = await Promise.all(
           friends.map(async (friend) => {
             try {
               const messagesResponse = await getMessages(friend.email);
               const messages = messagesResponse.success ? messagesResponse.data : [];
-              
-              // Get last message and count unread messages
-              const lastMessage = messages[0]; // Messages are already sorted by time
+              const lastMessage = messages[0];
               const unreadCount = messages.filter(
                 msg => msg.status !== 'read' && msg.senderEmail === friend.email
               ).length;
 
               return {
-                email: friend.email,
-                fullName: friend.fullName,
-                avatar: friend.avatar,
-                lastMessage,
+                id: friend.email,
+                type: 'personal' as const,
+                name: friend.fullName,
+                avatar: friend.avatar || undefined,
+                lastMessage: lastMessage ? {
+                  content: lastMessage.content,
+                  senderEmail: lastMessage.senderEmail,
+                  timestamp: lastMessage.createdAt,
+                  type: lastMessage.type,
+                  metadata: lastMessage.metadata
+                } : undefined,
                 unreadCount
               };
             } catch (error) {
               console.error(`Error loading messages for ${friend.email}:`, error);
               return {
-                email: friend.email,
-                fullName: friend.fullName,
-                avatar: friend.avatar
+                id: friend.email,
+                type: 'personal' as const,
+                name: friend.fullName,
+                avatar: friend.avatar || undefined
               };
             }
           })
         );
-
-        // Sort conversations by last message time
-        const sortedConversations = conversationsWithMessages.sort((a, b) => {
-          if (!a.lastMessage && !b.lastMessage) return 0;
-          if (!a.lastMessage) return 1;
-          if (!b.lastMessage) return -1;
-          
-          const dateA = new Date(a.lastMessage.createdAt).getTime();
-          const dateB = new Date(b.lastMessage.createdAt).getTime();
-          return dateB - dateA;
-        });
-
-        setConversations(sortedConversations);
+        allConversations = [...allConversations, ...personalConversations];
       }
+
+      // Process group conversations
+      if (groupsResponse.success) {
+        const groups = groupsResponse.data as ExtendedGroup[];
+        const token = await AsyncStorage.getItem('token');
+        if (!token) return;
+        
+        const decoded = jwtDecode<{ email: string; id: string }>(token);
+        const userEmail = decoded.email;
+
+        console.log('Current user email:', userEmail);
+        console.log('Groups data:', groups);
+
+        const groupConversations = await Promise.all(
+          groups.map(async (group) => {
+            try {
+              // Kiểm tra xem người dùng có phải là thành viên của nhóm không
+              const isMember = group.members.some(member => member.email === userEmail);
+              console.log(`Group ${group.groupId} - Is member:`, isMember);
+              
+              if (!isMember) {
+                return null;
+              }
+
+              // Lấy tin nhắn cuối cùng của nhóm
+              const lastMessage = group.lastMessage;
+              console.log(`Group ${group.groupId} - Last message:`, lastMessage);
+
+              // Nếu không có tin nhắn cuối cùng, thử lấy từ mảng messages
+              if (!lastMessage && group.messages && group.messages.length > 0) {
+                const lastMsg = group.messages[group.messages.length - 1];
+                return {
+                  id: group.groupId,
+                  type: 'group' as const,
+                  name: group.name,
+                  avatar: group.avatar,
+                  lastMessage: {
+                    content: lastMsg.content,
+                    senderEmail: lastMsg.senderEmail,
+                    timestamp: lastMsg.createdAt
+                  }
+                } as Conversation;
+              }
+
+              return {
+                id: group.groupId,
+                type: 'group' as const,
+                name: group.name,
+                avatar: group.avatar,
+                lastMessage: lastMessage ? {
+                  content: lastMessage.content,
+                  senderEmail: lastMessage.senderEmail,
+                  timestamp: lastMessage.timestamp
+                } : undefined
+              } as Conversation;
+            } catch (error) {
+              console.error(`Error processing group ${group.groupId}:`, error);
+              return null;
+            }
+          })
+        );
+
+        // Lọc bỏ các nhóm null (không có quyền truy cập)
+        const validGroupConversations = groupConversations.filter((conv): conv is Conversation => conv !== null);
+        console.log('Valid group conversations:', validGroupConversations);
+        
+        allConversations = [...allConversations, ...validGroupConversations];
+      }
+
+      // Sort all conversations by last message time
+      const sortedConversations = allConversations.sort((a, b) => {
+        if (!a.lastMessage && !b.lastMessage) return 0;
+        if (!a.lastMessage) return 1;
+        if (!b.lastMessage) return -1;
+        
+        const dateA = new Date(a.lastMessage.timestamp).getTime();
+        const dateB = new Date(b.lastMessage.timestamp).getTime();
+        return dateB - dateA;
+      });
+
+      setConversations(sortedConversations);
     } catch (error) {
       console.error('Error loading conversations:', error);
     } finally {
@@ -93,7 +192,7 @@ const MessagesScreen = () => {
     
     if (diffInMinutes < 60) {
       return `${diffInMinutes} phút trước`;
-    } else if (diffInMinutes < 1440) { // Less than 24 hours
+    } else if (diffInMinutes < 1440) {
       const hours = Math.floor(diffInMinutes / 60);
       return `${hours} giờ trước`;
     } else {
@@ -102,26 +201,44 @@ const MessagesScreen = () => {
     }
   };
 
-  const renderConversationItem = ({ item }: { item: Conversation }) => {
-    const getMessageContent = (message?: Message) => {
-      if (!message) return '';
-      
-      if (message.isRecalled) {
-        return 'Tin nhắn đã được thu hồi';
+  const getMessageContent = (message?: Conversation['lastMessage']) => {
+    if (!message) return '';
+    
+    if (message.type === 'recall' || message.content.includes('đã thu hồi')) {
+      return 'Tin nhắn đã được thu hồi';
+    }
+    
+    // Check if content is a URL from S3
+    if (message.content.includes('amazonaws.com')) {
+      if (message.metadata?.fileType?.startsWith('image')) {
+        return '[Hình ảnh]';
       }
-      
-      // Check if content is a URL from S3
-      if (message.content.includes('amazonaws.com')) {
-        if (message.metadata?.fileType?.startsWith('image')) {
-          return 'Đã gửi một ảnh';
-        }
-        if (message.metadata?.fileType?.startsWith('video')) {
-          return 'Đã gửi một video';
-        }
-        return 'Đã gửi một file';
+      if (message.metadata?.fileType?.startsWith('video')) {
+        return '[Video]';
       }
+      return '[File]';
+    }
 
-      return message.content;
+    return message.content;
+  };
+
+  const renderConversationItem = ({ item }: { item: Conversation }) => {
+    const isGroup = item.type === 'group';
+
+    const handlePress = () => {
+      if (isGroup) {
+        navigation.navigate('ChatGroup', { 
+          groupId: item.id,
+          groupName: item.name,
+          avatar: item.avatar || ''
+        });
+      } else {
+        navigation.navigate('Chat', { 
+          fullName: item.name,
+          avatar: item.avatar || '',
+          receiverEmail: item.id
+        });
+      }
     };
 
     return (
@@ -130,18 +247,35 @@ const MessagesScreen = () => {
           styles.conversationItem,
           item.unreadCount ? styles.unreadConversation : null
         ]}
-        onPress={() => navigation.navigate('Chat', { 
-          fullName: item.fullName,
-          avatar: item.avatar,
-          receiverEmail: item.email
-        })}
+        onPress={handlePress}
       >
         <View style={styles.avatarContainer}>
-          <Avatar
-            rounded
-            source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
-            size={50}
-          />
+          {isGroup ? (
+            <View style={styles.groupAvatarContainer}>
+              {item.avatar ? (
+                <Avatar
+                  rounded
+                  source={{ uri: item.avatar }}
+                  size={50}
+                />
+              ) : (
+                <View style={styles.groupAvatarPlaceholder}>
+                  <Text style={styles.groupAvatarText}>
+                    {item.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.groupIndicator}>
+                <Ionicons name="people" size={12} color="#fff" />
+              </View>
+            </View>
+          ) : (
+            <Avatar
+              rounded
+              source={item.avatar ? { uri: item.avatar } : undefined}
+              size={50}
+            />
+          )}
           {item.unreadCount ? (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadCount}>{item.unreadCount}</Text>
@@ -155,14 +289,14 @@ const MessagesScreen = () => {
               styles.conversationName,
               item.unreadCount ? styles.unreadName : null
             ]} numberOfLines={1}>
-              {item.fullName}
+              {item.name}
             </Text>
             {item.lastMessage && (
               <Text style={[
                 styles.timeText,
                 item.unreadCount ? styles.unreadTime : null
               ]}>
-                {formatTimeAgo(item.lastMessage.createdAt)}
+                {formatTimeAgo(item.lastMessage.timestamp)}
               </Text>
             )}
           </View>
@@ -170,6 +304,11 @@ const MessagesScreen = () => {
             styles.lastMessage,
             item.unreadCount ? styles.unreadMessage : null
           ]} numberOfLines={1}>
+            {item.lastMessage?.senderEmail && isGroup ? (
+              <Text style={styles.messageSender}>
+                {`${item.lastMessage.senderEmail.split('@')[0]}: `}
+              </Text>
+            ) : null}
             {getMessageContent(item.lastMessage)}
           </Text>
         </View>
@@ -206,10 +345,10 @@ const MessagesScreen = () => {
       {/* Conversations List */}
       <FlatList
         data={conversations.filter(conv => 
-          conv.fullName.toLowerCase().includes(searchQuery.toLowerCase())
+          conv.name.toLowerCase().includes(searchQuery.toLowerCase())
         )}
         renderItem={renderConversationItem}
-        keyExtractor={item => item.email}
+        keyExtractor={item => `${item.type}-${item.id}`}
         style={styles.list}
         refreshing={loading}
         onRefresh={loadConversations}
@@ -441,6 +580,39 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   unreadMessage: {
+    color: '#0068ff',
+    fontWeight: '500',
+  },
+  groupAvatarContainer: {
+    position: 'relative',
+  },
+  groupAvatarPlaceholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  groupAvatarText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#666',
+  },
+  groupIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#0068ff',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  messageSender: {
     color: '#0068ff',
     fontWeight: '500',
   },

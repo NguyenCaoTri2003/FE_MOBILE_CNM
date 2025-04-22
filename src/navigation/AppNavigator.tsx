@@ -14,6 +14,8 @@ import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import FriendRequestsScreen from '../screens/FriendRequestsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import CreateGroupScreen from '../screens/CreateGroupScreen';
+import ChatGroupScreen from '../screens/ChatGroupScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -23,14 +25,37 @@ export type RootStackParamList = {
   Profile: undefined;
   DetailedProfile: undefined;
   Diary: undefined;
-  Chat: { 
-    receiverEmail: string;
+  Discovery: undefined;
+  Chat: {
     fullName: string;
     avatar: string;
+    receiverEmail: string;
     lastSeen?: string;
   };
+  ChatGroup: {
+    groupId: string;
+    groupName: string;
+    avatar: string;
+  };
+  CreateGroup: undefined;
+  GroupInfo: {
+    groupId: string;
+    groupName: string;
+    avatar: string;
+  };
+  AddMembers: {
+    groupId: string;
+  };
+  RemoveMembers: {
+    groupId: string;
+  };
+  LeaveGroup: {
+    groupId: string;
+  };
+  DeleteGroup: {
+    groupId: string;
+  };
   ForgotPassword: undefined;
-  Discovery: undefined;
   ResetPassword: { email: string };
   ChangePassword: undefined;
   FriendRequests: undefined;
@@ -108,6 +133,17 @@ const AppNavigator = () => {
         <Stack.Screen
           name="Chat"
           component={ChatScreen}
+        />
+        <Stack.Screen
+          name="CreateGroup"
+          component={CreateGroupScreen}
+        />
+        <Stack.Screen 
+          name="ChatGroup" 
+          component={ChatGroupScreen}
+          options={{
+            headerShown: false,
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>
