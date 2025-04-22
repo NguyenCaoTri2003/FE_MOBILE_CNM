@@ -157,6 +157,8 @@ const ChatGroupScreen = () => {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [forwardTab, setForwardTab] = useState<'friends' | 'groups'>('friends');
   const [isLoadingForward, setIsLoadingForward] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminActions, setShowAdminActions] = useState(false);
 
   useEffect(() => {
     const initializeSocket = async () => {
@@ -261,6 +263,14 @@ const ChatGroupScreen = () => {
         const response = await getGroupMembers(groupId);
         if (response.success) {
           setMemberCount(response.data.members.length);
+          const token = await AsyncStorage.getItem('token');
+          if (token) {
+            const decoded = jwtDecode<{ email: string }>(token);
+            const isUserAdmin = response.data.members.some(
+              (member: any) => member.email === decoded.email && member.role === 'admin'
+            );
+            setIsAdmin(isUserAdmin);
+          }
         }
       } catch (error) {
         console.error('Error loading group members:', error);
@@ -785,153 +795,6 @@ const ChatGroupScreen = () => {
   const renderMessage = ({ item }: { item: ExtendedGroupMessage }) => {
     const isMe = item.senderEmail === currentUserEmail;
     
-    console.log('Rendering message:', {
-      content: item.content,
-      senderEmail: item.senderEmail,
-      currentUserEmail,
-      isMe,
-      senderAvatar: item.senderAvatar
-    });
-
-    if (item.isRecalled) {
-      return (
-        <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-          {!isMe && (
-            <Avatar
-              rounded
-              source={{ uri: item.senderAvatar }}
-              size={30}
-              containerStyle={styles.avatar}
-            />
-          )}
-          <View style={[styles.messageBubble, styles.recalledBubble]}>
-            <Text style={styles.recalledText}>Tin nhắn đã được thu hồi</Text>
-          </View>
-        </View>
-      );
-    }
-
-    const isFileMessage = (content: string) => {
-      return content.includes('uploads3cnm.s3.amazonaws.com') && !isImageMessage(item);
-    };
-
-    const isImageMessage = (message: ExtendedGroupMessage) => {
-      if (message.type === 'image') return true;
-      if (message.metadata?.fileType?.startsWith('image/')) return true;
-      const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
-      const url = message.content.toLowerCase();
-      return imageExtensions.some(ext => url.endsWith(`.${ext}`));
-    };
-
-    const renderFileContent = () => {
-      const fileInfo = {
-        fileName: item.metadata?.fileName || 'Unknown file',
-        fileType: item.metadata?.fileType || '',
-        isImage: ['jpg', 'jpeg', 'png', 'gif'].includes(item.metadata?.fileType?.split('/')[1] || ''),
-        isVideo: ['mp4', 'mov', 'avi'].includes(item.metadata?.fileType?.split('/')[1] || ''),
-        isCompressed: ['zip', 'rar', '7z'].includes(item.metadata?.fileType?.split('/')[1] || ''),
-        isDocument: ['doc', 'docx', 'pdf', 'txt'].includes(item.metadata?.fileType?.split('/')[1] || '')
-      };
-
-      const handlePreview = () => {
-        if (item.content) {
-          Linking.openURL(item.content);
-        }
-      };
-
-      return (
-        <View style={styles.fileContainer}>
-          <TouchableOpacity 
-            style={[
-              styles.fileContentContainer,
-              { backgroundColor: isMe ? '#E3F2FD' : '#FFFFFF' },
-              styles.elevation
-            ]}
-            onPress={handlePreview}
-          >
-            <View style={styles.fileIconWrapper}>
-              <View style={[styles.fileIconContainer, { backgroundColor: '#1976D2' }]}>
-                <Ionicons 
-                  name="document"
-                  size={22} 
-                  color="#FFFFFF"
-                />
-              </View>
-            </View>
-            <View style={styles.fileInfoContainer}>
-              <Text style={styles.fileName} numberOfLines={1}>
-                {fileInfo.fileName}
-              </Text>
-              <Text style={styles.fileType}>
-                {fileInfo.fileType.toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: '#1976D2' }]}
-                onPress={handlePreview}
-              >
-                <Ionicons 
-                  name="eye-outline" 
-                  size={16} 
-                  color="#FFFFFF"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
-                onPress={handlePreview}
-              >
-                <Ionicons 
-                  name="cloud-download" 
-                  size={16} 
-                  color="#FFFFFF"
-                />
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </View>
-      );
-    };
-
-    const renderImageContent = () => {
-      return (
-        <TouchableOpacity 
-          onPress={() => {
-            if (item.content) {
-              Linking.openURL(item.content);
-            }
-          }}
-          style={[
-            styles.imageContainer,
-            isMe ? styles.myImageContainer : styles.theirImageContainer
-          ]}
-        >
-          <Image
-            source={{ uri: item.content }}
-            style={styles.messageImage}
-            resizeMode="cover"
-          />
-        </TouchableOpacity>
-      );
-    };
-
-    const renderReactions = () => {
-      if (!item.reactions || item.reactions.length === 0) return null;
-      
-      return (
-        <View style={[
-          styles.reactionsContainer,
-          isMe ? styles.myReactionsContainer : styles.theirReactionsContainer
-        ]}>
-          {item.reactions.map((reaction, index) => (
-            <Text key={`${reaction.messageId}-${index}`} style={styles.reactionEmoji}>
-              {reaction.reaction}
-            </Text>
-          ))}
-        </View>
-      );
-    };
-
     return (
       <TouchableOpacity
         onLongPress={() => {
@@ -940,6 +803,7 @@ const ChatGroupScreen = () => {
             setShowMessageActions(true);
           } else {
             setSelectedMessage(item);
+            setSelectedMessageForActions(item);
             setShowReactions(true);
           }
         }}
@@ -963,15 +827,91 @@ const ChatGroupScreen = () => {
             ]}
           >
             {isImageMessage(item) ? (
-              renderImageContent()
+              <TouchableOpacity 
+                onPress={() => {
+                  if (item.content) {
+                    Linking.openURL(item.content);
+                  }
+                }}
+                style={[
+                  styles.imageContainer,
+                  isMe ? styles.myImageContainer : styles.theirImageContainer
+                ]}
+              >
+                <Image
+                  source={{ uri: item.content }}
+                  style={styles.messageImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
             ) : isFileMessage(item.content) ? (
-              renderFileContent()
+              <View style={styles.fileContainer}>
+                <TouchableOpacity 
+                  style={[
+                    styles.fileContentContainer,
+                    { backgroundColor: isMe ? '#E3F2FD' : '#FFFFFF' },
+                    styles.elevation
+                  ]}
+                  onPress={() => {
+                    if (item.content) {
+                      Linking.openURL(item.content);
+                    }
+                  }}
+                >
+                  <View style={styles.fileIconWrapper}>
+                    <View style={[styles.fileIconContainer, { backgroundColor: '#1976D2' }]}>
+                      <Ionicons 
+                        name="document"
+                        size={22} 
+                        color="#FFFFFF"
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.fileInfoContainer}>
+                    <Text style={styles.fileName} numberOfLines={1}>
+                      {item.metadata?.fileName || 'Unknown file'}
+                    </Text>
+                    <Text style={styles.fileType}>
+                      {item.metadata?.fileType?.toUpperCase() || 'Unknown type'}
+                    </Text>
+                  </View>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, { backgroundColor: '#1976D2' }]}
+                      onPress={() => {
+                        if (item.content) {
+                          Linking.openURL(item.content);
+                        }
+                      }}
+                    >
+                      <Ionicons 
+                        name="eye-outline" 
+                        size={16} 
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
+                      onPress={() => {
+                        if (item.content) {
+                          Clipboard.setString(item.content);
+                        }
+                      }}
+                    >
+                      <Ionicons 
+                        name="copy-outline" 
+                        size={16} 
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              </View>
             ) : (
               <Text style={[styles.messageText, !isMe && styles.theirMessageText]}>
                 {item.content}
               </Text>
             )}
-            {renderReactions()}
             <View style={styles.messageFooter}>
               <Text style={[styles.messageTime, !isMe && styles.theirMessageTime]}>
                 {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: vi })}
@@ -1024,6 +964,115 @@ const ChatGroupScreen = () => {
         </TouchableOpacity>
       </Modal>
     );
+  };
+
+  const renderReactionAndActionModal = () => {
+    if (!selectedMessage) return null;
+
+    return (
+      <Modal
+        visible={showReactions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReactions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowReactions(false)}
+        >
+          <View style={styles.reactionAndActionContainer}>
+            {/* Reactions Section */}
+            <View style={styles.reactionSection}>
+              <Text style={styles.sectionTitle}>Reactions</Text>
+              <View style={styles.reactionMenu}>
+                {REACTIONS.map((reaction, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.reactionButton}
+                    onPress={() => {
+                      if (!selectedMessage) return;
+                      
+                      if (reaction.type === 'reaction') {
+                        handleReaction(selectedMessage.messageId, reaction.emoji);
+                      } else if (reaction.type === 'action') {
+                        if (reaction.name === 'copy') {
+                          handleCopyText(selectedMessage);
+                        } else if (reaction.name === 'forward') {
+                          setSelectedMessageForForward(selectedMessage);
+                          setShowForwardModal(true);
+                          setShowReactions(false);
+                        }
+                      }
+                    }}
+                  >
+                    <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Admin Actions Section */}
+            {isAdmin && (
+              <View style={styles.actionSection}>
+                <Text style={styles.sectionTitle}>Admin Actions</Text>
+                <View style={styles.adminActionsMenu}>
+                  <TouchableOpacity
+                    style={styles.adminActionButton}
+                    onPress={() => {
+                      if (selectedMessage) {
+                        handleRecall(selectedMessage.messageId);
+                        setShowReactions(false);
+                      }
+                    }}
+                  >
+                    <Ionicons name="refresh-outline" size={24} color="#0068ff" />
+                    <Text style={styles.adminActionText}>Thu hồi tin nhắn</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.adminActionButton}
+                    onPress={() => {
+                      if (selectedMessage) {
+                        setSelectedMessageForForward(selectedMessage);
+                        setShowForwardModal(true);
+                        setShowReactions(false);
+                      }
+                    }}
+                  >
+                    <Ionicons name="share-outline" size={24} color="#0068ff" />
+                    <Text style={styles.adminActionText}>Chuyển tiếp</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.adminActionButton}
+                    onPress={() => {
+                      if (selectedMessage) {
+                        handleCopyText(selectedMessage);
+                        setShowReactions(false);
+                      }
+                    }}
+                  >
+                    <Ionicons name="copy-outline" size={24} color="#0068ff" />
+                    <Text style={styles.adminActionText}>Sao chép</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    );
+  };
+
+  const isFileMessage = (content: string) => {
+    return content.includes('uploads3cnm.s3.amazonaws.com') && (!selectedMessage || !isImageMessage(selectedMessage));
+  };
+
+  const isImageMessage = (message: ExtendedGroupMessage) => {
+    if (message.type === 'image') return true;
+    if (message.metadata?.fileType?.startsWith('image/')) return true;
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+    const url = message.content.toLowerCase();
+    return imageExtensions.some(ext => url.endsWith(`.${ext}`));
   };
 
   return (
@@ -1164,47 +1213,8 @@ const ChatGroupScreen = () => {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Reaction Modal */}
-      <Modal
-        visible={showReactions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowReactions(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowReactions(false)}
-        >
-          <View style={styles.reactionMenu}>
-            {REACTIONS.map((reaction, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.reactionButton}
-                onPress={() => {
-                  if (!selectedMessage) return;
-                  
-                  if (reaction.type === 'reaction') {
-                    handleReaction(selectedMessage.messageId, reaction.emoji);
-                  } else if (reaction.type === 'action') {
-                    if (reaction.name === 'copy') {
-                      handleCopyText(selectedMessage);
-                    } else if (reaction.name === 'forward') {
-                      setSelectedMessageForForward(selectedMessage);
-                      setShowForwardModal(true);
-                      setShowReactions(false);
-                    }
-                  }
-                }}
-              >
-                <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
       {renderMessageActions()}
+      {renderReactionAndActionModal()}
       {renderForwardModal()}
     </SafeAreaView>
   );
@@ -1468,18 +1478,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  reactionAndActionContainer: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  reactionSection: {
+    marginBottom: 15,
+  },
+  actionSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingTop: 15,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#666',
+  },
   reactionMenu: {
     flexDirection: 'row',
-    backgroundColor: 'white',
-    borderRadius: 30,
-    padding: 8,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
     flexWrap: 'wrap',
-    maxWidth: '80%',
     justifyContent: 'center',
   },
   reactionButton: {
@@ -1490,35 +1512,22 @@ const styles = StyleSheet.create({
     fontSize: 20,
     marginHorizontal: 2,
   },
-  reactionsContainer: {
+  adminActionsMenu: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    padding: 10,
+  },
+  adminActionButton: {
     flexDirection: 'row',
-    position: 'absolute',
-    bottom: -15,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    zIndex: 1,
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  myReactionsContainer: {
-    left: 10,
-  },
-  theirReactionsContainer: {
-    right: 10,
-  },
-  recalledBubble: {
-    backgroundColor: '#f0f0f0',
-    opacity: 0.8,
-  },
-  recalledText: {
-    color: '#666',
-    fontStyle: 'italic',
-    fontSize: 14,
+  adminActionText: {
+    marginLeft: 15,
+    fontSize: 16,
+    color: '#0068ff',
   },
   messageActionsMenu: {
     backgroundColor: 'white',
