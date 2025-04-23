@@ -83,9 +83,7 @@ const convertToEmoji = (text: string) => {
     .replace(/\(n\)/g, "👎")          // (n) -> 👎 (n = dislike)
     .replace(/:\*/g, "😘");          // :* -> 😘
 };
-const [showAddMemberModal, setShowAddMemberModal] = useState(false);
-const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<string[]>([]);
-const [friendsList, setFriendsList] = useState<Friend[]>([]);
+
 
 
 
@@ -204,6 +202,9 @@ const ChatGroupScreen = () => {
   const [isLoadingForward, setIsLoadingForward] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminActions, setShowAdminActions] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<string[]>([]);
+  const [friendsList, setFriendsList] = useState<Friend[]>([]);
 
   useEffect(() => {
     loadMessages();
@@ -1083,6 +1084,7 @@ const ChatGroupScreen = () => {
       </Modal>
     );
   };
+  
 
   const isFileMessage = (content: string) => {
     return content.includes('uploads3cnm.s3.amazonaws.com') && (!selectedMessage || !isImageMessage(selectedMessage));
@@ -1094,6 +1096,38 @@ const ChatGroupScreen = () => {
     const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
     const url = message.content.toLowerCase();
     return imageExtensions.some(ext => url.endsWith(`.${ext}`));
+  };
+
+  // Thêm thành viên vào nhóm
+  const handleAddMembers = async (emails: string[]) => {
+    try {
+      const response = await addGroupMembers(groupId, emails);
+      if (response.success) {
+        Alert.alert('Thành công', 'Đã thêm thành viên vào nhóm');
+        socketService.emit('groupMembersUpdated', { groupId });
+      } else {
+        Alert.alert('Thất bại', response.message || 'Không thể thêm thành viên');
+      }
+    } catch (error) {
+      console.error('Lỗi khi thêm thành viên:', error);
+      Alert.alert('Lỗi', 'Không thể thêm thành viên');
+    }
+  };
+  
+  // Xóa thành viên khỏi nhóm
+  const handleRemoveMember = async (email: string) => {
+    try {
+      const response = await removeGroupMember(groupId, email);
+      if (response.success) {
+        Alert.alert('Thành công', 'Đã xóa thành viên khỏi nhóm');
+        socketService.emit('groupMembersUpdated', { groupId });
+      } else {
+        Alert.alert('Thất bại', response.message || 'Không thể xóa thành viên');
+      }
+    } catch (error) {
+      console.error('Lỗi khi xóa thành viên:', error);
+      Alert.alert('Lỗi', 'Không thể xóa thành viên');
+    }
   };
 
   const setupSocketListeners = () => {
@@ -1127,38 +1161,6 @@ const ChatGroupScreen = () => {
     const handleMembersUpdate = (data: { groupId: string, newMembers: any[] }) => {
       if (data.groupId === groupId) {
         setMemberCount(data.newMembers.length);
-      }
-    };
-
-    // Thêm thành viên vào nhóm
-    const handleAddMembers = async (emails: string[]) => {
-      try {
-        const response = await addGroupMembers(groupId, emails);
-        if (response.success) {
-          Alert.alert('Thành công', 'Đã thêm thành viên vào nhóm');
-          socketService.emit('groupMembersUpdated', { groupId });
-        } else {
-          Alert.alert('Thất bại', response.message || 'Không thể thêm thành viên');
-        }
-      } catch (error) {
-        console.error('Lỗi khi thêm thành viên:', error);
-        Alert.alert('Lỗi', 'Không thể thêm thành viên');
-      }
-    };
-    
-    // Xóa thành viên khỏi nhóm
-    const handleRemoveMember = async (email: string) => {
-      try {
-        const response = await removeGroupMember(groupId, email);
-        if (response.success) {
-          Alert.alert('Thành công', 'Đã xóa thành viên khỏi nhóm');
-          socketService.emit('groupMembersUpdated', { groupId });
-        } else {
-          Alert.alert('Thất bại', response.message || 'Không thể xóa thành viên');
-        }
-      } catch (error) {
-        console.error('Lỗi khi xóa thành viên:', error);
-        Alert.alert('Lỗi', 'Không thể xóa thành viên');
       }
     };
     
@@ -1332,6 +1334,59 @@ const ChatGroupScreen = () => {
       {renderMessageActions()}
       {renderReactionAndActionModal()}
       {renderForwardModal()}
+      {showAddMemberModal && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.forwardModal}>
+              <Text style={styles.forwardModalTitle}>Thêm thành viên</Text>
+              <FlatList
+                data={friendsList}
+                keyExtractor={item => item.email}
+                renderItem={({ item }) => {
+                  const isSelected = selectedFriendsToAdd.includes(item.email);
+                  return (
+                    <TouchableOpacity
+                      style={styles.forwardItem}
+                      onPress={() => {
+                        if (isSelected) {
+                          setSelectedFriendsToAdd(prev => prev.filter(e => e !== item.email));
+                        } else {
+                          setSelectedFriendsToAdd(prev => [...prev, item.email]);
+                        }
+                      }}
+                    >
+                      <Avatar rounded source={{ uri: item.avatar }} size={40} />
+                      <View style={styles.forwardItemInfo}>
+                        <Text style={styles.forwardItemName}>{item.fullName}</Text>
+                        <Text style={styles.forwardItemSubtext}>{item.email}</Text>
+                      </View>
+                      <Ionicons
+                        name={isSelected ? "checkbox" : "square-outline"}
+                        size={24}
+                        color="#0068ff"
+                      />
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+              <TouchableOpacity
+                style={styles.sendButton}
+                onPress={async () => {
+                  if (selectedFriendsToAdd.length > 0) {
+                    await handleAddMembers(selectedFriendsToAdd);
+                    setSelectedFriendsToAdd([]);
+                    setShowAddMemberModal(false);
+                  } else {
+                    Alert.alert("Thông báo", "Vui lòng chọn ít nhất 1 người.");
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Thêm thành viên</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
 
     </SafeAreaView>
   );
