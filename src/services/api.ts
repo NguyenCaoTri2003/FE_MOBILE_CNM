@@ -509,6 +509,7 @@ export interface Group {
 
 export interface GroupResponse {
   success: boolean;
+  message?: string;
   data: Group;
 }
 
@@ -579,6 +580,7 @@ export const deleteGroup = async (groupId: string): Promise<void> => {
   }
 };
 
+// Thêm thành viên vào nhóm
 export const addGroupMembers = async (
   groupId: string,
   memberEmails: string[]
@@ -593,6 +595,7 @@ export const addGroupMembers = async (
   }
 };
 
+// Xóa thành viên khỏi nhóm
 export const removeGroupMember = async (
   groupId: string,
   memberEmail: string

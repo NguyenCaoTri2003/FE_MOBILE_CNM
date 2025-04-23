@@ -18,7 +18,9 @@ import {
   getGroupMembers,
   getGroups,
   forwardGroupMessage,
-  getFriends
+  getFriends,
+  addGroupMembers,
+  removeGroupMember
 } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -61,6 +63,31 @@ const REACTIONS = [
   { emoji: '📋', name: 'copy', type: 'action' },
   { emoji: '↪️', name: 'forward', type: 'action' }
 ];
+const convertToEmoji = (text: string) => {
+  return text
+    .replace(/:\)/g, "😊")           // :) -> 😊
+    .replace(/:D/g, "😄")            // :D -> 😄
+    .replace(/:P/g, "😛")            // :P -> 😛
+    .replace(/:\/\//g, "😕")         // :// -> 😕 (hoặc có thể là :\// tùy chỉnh)
+    .replace(/<3/g, "❤️")            // <3 -> ❤️
+    .replace(/;\)/g, "😉")           // ;) -> 😉
+    .replace(/:O/g, "😲")            // :O -> 😲
+    .replace(/:'\(/g, "😢")           // :'( -> 😢
+    .replace(/XD/g, "😂")            // XD -> 😂
+    .replace(/:-\(/g, "☹️")          // :- ( -> ☹️
+    .replace(/:|/g, "😐")            // :| -> 😐
+    .replace(/:3/g, "😻")            // :3 -> 😻
+    .replace(/B-\)/g, "😎")          // B-) -> 😎
+    .replace(/<3/g, "❤️")            // <3 -> ❤️
+    .replace(/\(y\)/g, "👍")          // (y) -> 👍 (y = like)
+    .replace(/\(n\)/g, "👎")          // (n) -> 👎 (n = dislike)
+    .replace(/:\*/g, "😘");          // :* -> 😘
+};
+const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<string[]>([]);
+const [friendsList, setFriendsList] = useState<Friend[]>([]);
+
+
 
 interface MessageReaction {
   messageId: string;
@@ -269,6 +296,24 @@ const ChatGroupScreen = () => {
 
     loadForwardData();
   }, [showForwardModal, groupId]);
+
+  //Load danh sách bạn bè khi mở modal
+  useEffect(() => {
+    if (showAddMemberModal) {
+      const fetchFriends = async () => {
+        try {
+          const response = await getFriends();
+          if (response.success) {
+            setFriendsList(response.data);
+          }
+        } catch (err) {
+          console.error('Lỗi tải danh sách bạn bè:', err);
+        }
+      };
+      fetchFriends();
+    }
+  }, [showAddMemberModal]);
+  
 
   const fetchUserAvatar = async (email: string) => {
     try {
@@ -1085,6 +1130,41 @@ const ChatGroupScreen = () => {
       }
     };
 
+    // Thêm thành viên vào nhóm
+    const handleAddMembers = async (emails: string[]) => {
+      try {
+        const response = await addGroupMembers(groupId, emails);
+        if (response.success) {
+          Alert.alert('Thành công', 'Đã thêm thành viên vào nhóm');
+          socketService.emit('groupMembersUpdated', { groupId });
+        } else {
+          Alert.alert('Thất bại', response.message || 'Không thể thêm thành viên');
+        }
+      } catch (error) {
+        console.error('Lỗi khi thêm thành viên:', error);
+        Alert.alert('Lỗi', 'Không thể thêm thành viên');
+      }
+    };
+    
+    // Xóa thành viên khỏi nhóm
+    const handleRemoveMember = async (email: string) => {
+      try {
+        const response = await removeGroupMember(groupId, email);
+        if (response.success) {
+          Alert.alert('Thành công', 'Đã xóa thành viên khỏi nhóm');
+          socketService.emit('groupMembersUpdated', { groupId });
+        } else {
+          Alert.alert('Thất bại', response.message || 'Không thể xóa thành viên');
+        }
+      } catch (error) {
+        console.error('Lỗi khi xóa thành viên:', error);
+        Alert.alert('Lỗi', 'Không thể xóa thành viên');
+      }
+    };
+    
+    
+    
+
     // Subscribe to socket events
     socketService.on('newGroupMessage', handleNewMessage);
     socketService.on('groupNameChanged', handleNameChange);
@@ -1135,6 +1215,14 @@ const ChatGroupScreen = () => {
           <TouchableOpacity style={styles.headerIcon}>
             <Ionicons name="videocam" size={24} color="#fff" />
           </TouchableOpacity>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={() => setShowAddMemberModal(true)}
+            >
+              <Ionicons name="person-add" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity 
             style={styles.headerIcon}
             onPress={() => navigation.navigate('GroupInfo', { 
@@ -1244,6 +1332,7 @@ const ChatGroupScreen = () => {
       {renderMessageActions()}
       {renderReactionAndActionModal()}
       {renderForwardModal()}
+
     </SafeAreaView>
   );
 };
