@@ -16,6 +16,15 @@ import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { createGroup, getFriends, uploadFile } from '../services/api';
 import type { Friend } from '../services/api';
+import { socketService } from '../services/socket';
+
+interface Group {
+  groupId: string;
+  name: string;
+  avatar?: string;
+  members: string[];
+  createdAt: string;
+}
 
 const CreateGroupScreen = () => {
   const navigation = useNavigation();
@@ -60,26 +69,22 @@ const CreateGroupScreen = () => {
   };
 
   const handleCreateGroup = async () => {
-    if (!groupName.trim()) {
-      Alert.alert('Lỗi', 'Vui lòng nhập tên nhóm');
+    if (selectedFriends.size < 2) {
+      Alert.alert('Lỗi', 'Vui lòng chọn ít nhất 2 thành viên');
       return;
     }
-
-    if (selectedFriends.size === 0) {
-      Alert.alert('Lỗi', 'Vui lòng chọn ít nhất một thành viên');
-      return;
-    }
-
-    setIsLoading(true);
 
     try {
+      setIsLoading(true);
       let avatarUrl = null;
+
+      // Upload avatar if selected
       if (groupAvatar) {
         const formData = new FormData();
         formData.append('file', {
           uri: groupAvatar,
           type: 'image/jpeg',
-          name: 'group-avatar.jpg',
+          name: 'group-avatar.jpg'
         } as any);
 
         const uploadResponse = await uploadFile(formData);
@@ -88,25 +93,25 @@ const CreateGroupScreen = () => {
         }
       }
 
+      // Create group with avatar
       const response = await createGroup(
         groupName,
-        '',
+        undefined,
         Array.from(selectedFriends),
         avatarUrl
       );
 
       if (response.success) {
-        Alert.alert('Thành công', 'Tạo nhóm thành công', [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack()
-          }
-        ]);
+        // Emit socket event for new group
+        socketService.emitCreateGroup(groupName, Array.from(selectedFriends));
+        // Navigate back to contacts screen
+        navigation.navigate('Contacts' as never);
       } else {
         Alert.alert('Lỗi', 'Không thể tạo nhóm');
       }
-    } catch (error) {
-      Alert.alert('Lỗi', 'Đã có lỗi xảy ra khi tạo nhóm');
+    } catch (error: any) {
+      console.error('Error creating group:', error);
+      Alert.alert('Lỗi', error.message || 'Không thể kết nối đến server');
     } finally {
       setIsLoading(false);
     }

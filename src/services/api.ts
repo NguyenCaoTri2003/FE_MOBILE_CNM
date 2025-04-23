@@ -494,16 +494,17 @@ export interface GroupMember {
 export interface Group {
   groupId: string;
   name: string;
-  description?: string;
   avatar?: string;
-  createdAt: string;
-  createdBy: string;
   members: GroupMember[];
+  creator: string;
   lastMessage?: {
     content: string;
     senderEmail: string;
     timestamp: string;
+    type?: string;
   };
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface GroupResponse {

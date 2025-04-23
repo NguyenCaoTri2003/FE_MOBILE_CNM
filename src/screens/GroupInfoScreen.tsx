@@ -77,14 +77,38 @@ const GroupInfoScreen = () => {
   };
 
   const setupSocketListeners = () => {
-    socketService.on('memberLeft', (data: { groupId: string, userId: string }) => {
+    // Listen for group name changes
+    const handleNameChange = (data: { groupId: string, newName: string }) => {
       if (data.groupId === groupId) {
-        fetchGroupMembers(); // Refresh members list
+        setNewGroupName(data.newName);
+        navigation.setParams({ groupName: data.newName });
       }
-    });
+    };
+
+    // Listen for group avatar changes
+    const handleAvatarChange = (data: { groupId: string, newAvatar: string }) => {
+      if (data.groupId === groupId) {
+        setGroupAvatar(data.newAvatar);
+        navigation.setParams({ avatar: data.newAvatar });
+      }
+    };
+
+    // Listen for member updates
+    const handleMembersUpdate = (data: { groupId: string, newMembers: any[] }) => {
+      if (data.groupId === groupId) {
+        setMembers(data.newMembers);
+      }
+    };
+
+    // Subscribe to socket events
+    socketService.on('groupNameChanged', handleNameChange);
+    socketService.on('groupAvatarChanged', handleAvatarChange);
+    socketService.on('groupMembersUpdated', handleMembersUpdate);
 
     return () => {
-      socketService.off('memberLeft', () => {});
+      socketService.off('groupNameChanged', handleNameChange);
+      socketService.off('groupAvatarChanged', handleAvatarChange);
+      socketService.off('groupMembersUpdated', handleMembersUpdate);
     };
   };
 

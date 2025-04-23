@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendRequest, withdrawFriendRequest, getFriends, unfriend, getGroups } from '../services/api';
-import type { FriendRequest as BaseFriendRequest, Group } from '../services/api';
+import type { FriendRequest as BaseFriendRequest, Group, GroupMember } from '../services/api';
 import { socketService } from '../services/socket';
 
 // Add type definitions at the top of the file
@@ -59,6 +59,13 @@ interface FriendListUpdateData {
   email?: string;
 }
 
+// Define a type for the socket message
+interface SocketGroupMessage {
+  content: string;
+  sender: string;
+  timestamp: string;
+}
+
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -89,7 +96,6 @@ const ContactsScreen = () => {
   const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
 
   useEffect(() => {
     // Try to load from cache first
@@ -102,10 +108,11 @@ const ContactsScreen = () => {
     // Load initial data without loading states
     const loadInitialData = async () => {
       try {
-        // Load friend requests and friends data in parallel
-        const [friendRequestsResponse, friendsResponse] = await Promise.all([
+        // Load friend requests, friends data and groups in parallel
+        const [friendRequestsResponse, friendsResponse, groupsResponse] = await Promise.all([
           getFriendRequests(),
-          getFriends()
+          getFriends(),
+          getGroups()
         ]);
 
         if (friendRequestsResponse.success) {
@@ -135,6 +142,10 @@ const ContactsScreen = () => {
           setTimeout(() => {
             socketService.emit('getFriendsList', {});
           }, 100);
+        }
+
+        if (groupsResponse.success) {
+          setGroups(groupsResponse.data);
         }
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -233,13 +244,79 @@ const ContactsScreen = () => {
       });
     };
 
+    // Group chat socket event listeners
+    const handleGroupList = (data: { groups: Group[] }) => {
+      console.log('Received groupList:', data);
+      setGroups(data.groups);
+    };
+
+    const handleGroupCreated = (data: { group: Group }) => {
+      console.log('Received groupCreated:', data);
+      setGroups(prev => {
+        // Check if group already exists to avoid duplicates
+        const groupExists = prev.some(g => g.groupId === data.group.groupId);
+        if (groupExists) {
+          return prev;
+        }
+        return [...prev, data.group];
+      });
+    };
+
+    const handleGroupJoined = (data: { group: Group }) => {
+      console.log('Received groupJoined:', data);
+      setGroups(prev => {
+        // Check if group already exists
+        const groupExists = prev.some(g => g.groupId === data.group.groupId);
+        if (groupExists) {
+          return prev;
+        }
+        return [...prev, data.group];
+      });
+    };
+
+    const handleGroupMembersUpdated = (data: { groupId: string, newMembers: GroupMember[] }) => {
+      console.log('Received groupMembersUpdated:', data);
+      setGroups(prev => 
+        prev.map(group => 
+          group.groupId === data.groupId 
+            ? { ...group, members: [...group.members, ...data.newMembers] } 
+            : group
+        )
+      );
+    };
+
+    const handleNewGroupMessage = (data: { groupId: string, message: SocketGroupMessage }) => {
+      console.log('Received newGroupMessage:', data);
+      setGroups(prev => 
+        prev.map(group => 
+          group.groupId === data.groupId 
+            ? { 
+                ...group, 
+                lastMessage: {
+                  content: data.message.content,
+                  senderEmail: data.message.sender,
+                  timestamp: data.message.timestamp
+                }
+              } 
+            : group
+        )
+      );
+    };
+
     // Subscribe to socket events
     socketService.on('friendListUpdate', handleFriendListUpdate);
     socketService.on('friendStatusUpdate', handleFriendStatusUpdate);
+    socketService.on('groupList', handleGroupList);
+    socketService.on('groupCreated', handleGroupCreated);
+    socketService.on('groupJoined', handleGroupJoined);
+    socketService.on('groupMembersUpdated', handleGroupMembersUpdated);
+    socketService.on('newGroupMessage', handleNewGroupMessage);
 
     // Emit initial online status after a small delay
     setTimeout(() => {
       socketService.emit('userStatus', { status: 'online' });
+      // Join groups to get initial group list
+      socketService.joinGroups();
     }, 100);
 
     const unsubscribe = navigation.addListener('focus', () => {
@@ -250,34 +327,40 @@ const ContactsScreen = () => {
         setTotalFriends(global.cachedContacts.reduce((sum, group) => sum + group.items.length, 0));
       }
       loadInitialData();
+      // Join groups when screen is focused
+      socketService.joinGroups();
     });
 
     // Cleanup
     return () => {
       socketService.off('friendListUpdate', handleFriendListUpdate);
       socketService.off('friendStatusUpdate', handleFriendStatusUpdate);
+      socketService.off('groupList', handleGroupList);
+      socketService.off('groupCreated', handleGroupCreated);
+      socketService.off('groupJoined', handleGroupJoined);
+      socketService.off('groupMembersUpdated', handleGroupMembersUpdated);
+      socketService.off('newGroupMessage', handleNewGroupMessage);
       socketService.emit('userStatus', { status: 'offline' });
       unsubscribe();
     };
   }, [navigation]);
 
+  // Add effect to load groups when tab changes
   useEffect(() => {
-    loadGroups();
-  }, []);
-
-  const loadGroups = async () => {
-    setIsLoadingGroups(true);
-    try {
-      const response = await getGroups();
-      if (response.success) {
-        setGroups(response.data);
-      }
-    } catch (error) {
-      console.error('Error loading groups:', error);
-    } finally {
-      setIsLoadingGroups(false);
+    if (contactsIndex === 1) { // Groups tab
+      const loadGroups = async () => {
+        try {
+          const response = await getGroups();
+          if (response.success) {
+            setGroups(response.data);
+          }
+        } catch (error) {
+          console.error('Error loading groups:', error);
+        }
+      };
+      loadGroups();
     }
-  };
+  }, [contactsIndex]);
 
   const debouncedSearch = useCallback(
     debounce(async (query: string) => {
@@ -712,6 +795,10 @@ const ContactsScreen = () => {
     }
   };
 
+  const handleCreateGroup = () => {
+    navigation.navigate('CreateGroup');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
@@ -840,7 +927,7 @@ const ContactsScreen = () => {
                   {/* Create Group Button */}
                   <TouchableOpacity 
                     style={styles.createGroupButton}
-                    onPress={() => navigation.navigate('CreateGroup')}
+                    onPress={handleCreateGroup}
                   >
                     <View style={styles.createGroupIcon}>
                       <Ionicons name="people" size={20} color="#fff" />
@@ -893,12 +980,28 @@ const ContactsScreen = () => {
                     </View>
 
                     {/* Group List */}
-                    {isLoadingGroups ? (
-                      <ActivityIndicator size="large" color="#0068ff" style={{padding: 20}} />
-                    ) : (
-                      <View>
-                        {groups.map((group) => (
-                          <View key={group.groupId} style={styles.groupItem}>
+                    <View>
+                      {groups.length === 0 ? (
+                        <View style={styles.emptyGroupContainer}>
+                          <Text style={styles.emptyGroupText}>Bạn chưa tham gia nhóm nào</Text>
+                          <TouchableOpacity 
+                            style={styles.createEmptyGroupButton}
+                            onPress={handleCreateGroup}
+                          >
+                            <Text style={styles.createEmptyGroupButtonText}>Tạo nhóm mới</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        groups.map((group) => (
+                          <TouchableOpacity 
+                            key={group.groupId} 
+                            style={styles.groupItem}
+                            onPress={() => navigation.navigate('ChatGroup', { 
+                              groupId: group.groupId,
+                              groupName: group.name,
+                              avatar: group.avatar || ''
+                            })}
+                          >
                             {group.avatar ? (
                               <Image 
                                 source={{ uri: group.avatar }} 
@@ -920,10 +1023,10 @@ const ContactsScreen = () => {
                                 {group.lastMessage ? formatTime(new Date(group.lastMessage.timestamp)) : ''}
                               </Text>
                             </View>
-                          </View>
-                        ))}
-                      </View>
-                    )}
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </View>
                   </View>
                 </ScrollView>
               </TabView.Item>
@@ -1545,6 +1648,28 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#666',
+  },
+  emptyGroupContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyGroupText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  createEmptyGroupButton: {
+    backgroundColor: '#0068ff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  createEmptyGroupButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });
 

@@ -13,6 +13,7 @@ import {
   recallGroupMessage, 
   deleteGroupMessage,
   Message,
+  GroupMessage,
   searchUsers,
   getGroupMembers,
   getGroups,
@@ -21,12 +22,10 @@ import {
 } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
-import { API_BASE_URL } from '@env';
 import { jwtDecode } from 'jwt-decode';
 import { socketService } from '../services/socket';
 
@@ -69,12 +68,30 @@ interface MessageReaction {
   senderEmail: string;
 }
 
-interface ExtendedGroupMessage extends Message {
+interface ExtendedGroupMessage {
+  messageId: string;
   groupId: string;
+  senderEmail: string;
+  receiverEmail: string;
+  content: string;
+  createdAt: string;
+  status: 'sending' | 'sent' | 'read' | 'error';
+  type: 'text' | 'image' | 'file' | 'audio' | 'video';
   senderName?: string;
   senderAvatar?: string;
   isCurrentUser?: boolean;
   reactions?: MessageReaction[];
+  isRecalled?: boolean;
+  metadata?: {
+    fileName?: string;
+    fileSize?: number;
+    fileType?: string;
+    fileUrl?: string;
+    thumbnailUrl?: string;
+    duration?: number;
+    width?: number;
+    height?: number;
+  };
 }
 
 interface ApiResponse<T> {
@@ -309,27 +326,61 @@ const ChatGroupScreen = () => {
     if (!newMessage.trim()) return;
 
     try {
-      const response = await sendGroupMessage(groupId, newMessage.trim());
+      // Lưu tin nhắn hiện tại để hiển thị ngay lập tức
+      const messageToShow = newMessage.trim();
+      setNewMessage('');
+      
+      // Tạo tin nhắn tạm thời để hiển thị ngay lập tức
+      const tempMessage: ExtendedGroupMessage = {
+        messageId: `temp-${Date.now()}`,
+        groupId,
+        senderEmail: currentUserEmail,
+        receiverEmail: groupId,
+        content: messageToShow,
+        createdAt: new Date().toISOString(),
+        status: 'sending',
+        type: 'text',
+        senderName: currentUserEmail,
+        senderAvatar: await fetchUserAvatar(currentUserEmail),
+        isCurrentUser: true
+      };
+      
+      setMessages(prev => [...prev, tempMessage] as ExtendedGroupMessage[]);
+      
+      // Gửi tin nhắn qua socket để cải thiện tốc độ
+      socketService.emitGroupMessage(groupId, messageToShow);
+      
+      // Sau đó gửi qua API để lưu vào database
+      const response = await sendGroupMessage(groupId, messageToShow);
+      
       if (response.success) {
-        const token = await AsyncStorage.getItem('token');
-        if (!token) return;
-
-        const decoded = jwtDecode<{ email: string; id: string }>(token);
-        const avatar = await fetchUserAvatar(decoded.email);
-        const newMessageWithInfo: ExtendedGroupMessage = {
-          ...response.data,
-          groupId,
-          messageId: response.data.messageId,
-          senderEmail: decoded.email,
-          content: newMessage.trim(),
-          createdAt: new Date().toISOString(),
-          status: 'sent',
-          senderName: decoded.email,
-          senderAvatar: avatar,
-          isCurrentUser: true
-        };
-        setMessages(prev => [...prev, newMessageWithInfo] as ExtendedGroupMessage[]);
-        setNewMessage('');
+        // Cập nhật tin nhắn tạm thời với thông tin thực từ server
+        setMessages(prev => {
+          return prev.map(msg => {
+            if (msg.messageId === tempMessage.messageId) {
+              return {
+                ...msg,
+                messageId: response.data.messageId,
+                status: 'sent'
+              };
+            }
+            return msg;
+          });
+        });
+      } else {
+        // Đánh dấu tin nhắn là lỗi nếu gửi thất bại
+        setMessages(prev => {
+          return prev.map(msg => {
+            if (msg.messageId === tempMessage.messageId) {
+              return {
+                ...msg,
+                status: 'error'
+              };
+            }
+            return msg;
+          });
+        });
+        Alert.alert('Lỗi', 'Không thể gửi tin nhắn');
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -1002,30 +1053,53 @@ const ChatGroupScreen = () => {
 
   const setupSocketListeners = () => {
     // Listen for new messages
-    socketService.on('newMessage', (message: any) => {
-      if (message.groupId === groupId) {
-        setMessages(prev => [...prev, message]);
+    const handleNewMessage = (data: { groupId: string, message: any }) => {
+      if (data.groupId === groupId) {
+        const newMessage: ExtendedGroupMessage = {
+          ...data.message,
+          groupId,
+          isCurrentUser: data.message.senderEmail === currentUserEmail
+        };
+        setMessages(prev => [...prev, newMessage]);
       }
-    });
+    };
 
     // Listen for group name changes
-    socketService.on('groupNameChanged', (data: { groupId: string, newName: string }) => {
+    const handleNameChange = (data: { groupId: string, newName: string }) => {
       if (data.groupId === groupId) {
         navigation.setParams({ groupName: data.newName });
       }
-    });
+    };
 
     // Listen for group avatar changes
-    socketService.on('groupAvatarChanged', (data: { groupId: string, newAvatar: string }) => {
+    const handleAvatarChange = (data: { groupId: string, newAvatar: string }) => {
       if (data.groupId === groupId) {
         navigation.setParams({ avatar: data.newAvatar });
       }
-    });
+    };
+
+    // Listen for member updates
+    const handleMembersUpdate = (data: { groupId: string, newMembers: any[] }) => {
+      if (data.groupId === groupId) {
+        setMemberCount(data.newMembers.length);
+      }
+    };
+
+    // Subscribe to socket events
+    socketService.on('newGroupMessage', handleNewMessage);
+    socketService.on('groupNameChanged', handleNameChange);
+    socketService.on('groupAvatarChanged', handleAvatarChange);
+    socketService.on('groupMembersUpdated', handleMembersUpdate);
+
+    // Join the group room
+    socketService.joinGroup(groupId);
 
     return () => {
-      socketService.off('newMessage', () => {});
-      socketService.off('groupNameChanged', () => {});
-      socketService.off('groupAvatarChanged', () => {});
+      socketService.off('newGroupMessage', handleNewMessage);
+      socketService.off('groupNameChanged', handleNameChange);
+      socketService.off('groupAvatarChanged', handleAvatarChange);
+      socketService.off('groupMembersUpdated', handleMembersUpdate);
+      socketService.leaveGroup(groupId);
     };
   };
 
