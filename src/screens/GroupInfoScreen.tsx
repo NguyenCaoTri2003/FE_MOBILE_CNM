@@ -11,6 +11,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { API_BASE_URL } from '@env';
 import { jwtDecode } from 'jwt-decode';
+import { removeGroupMember } from '../services/api';
+
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -316,6 +318,36 @@ const GroupInfoScreen = () => {
                       </View>
                     </View>
                   </View>
+                  {/* ✅ Nếu là admin và không phải chính mình thì hiện nút xóa */}
+                  {isAdmin && member.role !== 'admin' && (
+                    <TouchableOpacity
+                      onPress={() =>
+                        Alert.alert('Xác nhận', `Xóa ${member.fullName} khỏi nhóm?`, [
+                          { text: 'Hủy', style: 'cancel' },
+                          {
+                            text: 'Xóa',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                const response = await removeGroupMember(groupId, member.email);
+                                if (response.success) {
+                                  setMembers(prev => prev.filter(m => m.email !== member.email));
+                                  Alert.alert('Đã xóa thành viên');
+                                } else {
+                                  Alert.alert('Lỗi', response.message || 'Không thể xóa thành viên');
+                                }
+                              } catch (err) {
+                                console.error('Lỗi khi xóa thành viên:', err);
+                                Alert.alert('Lỗi', 'Không thể xóa thành viên');
+                              }
+                            },
+                          },
+                        ])
+                      }
+                    >
+                      <Ionicons name="person-remove" size={22} color="red" />
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))}
             </View>

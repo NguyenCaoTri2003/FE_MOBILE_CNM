@@ -205,6 +205,8 @@ const ChatGroupScreen = () => {
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<string[]>([]);
   const [friendsList, setFriendsList] = useState<Friend[]>([]);
+  const [groupMembers, setGroupMembers] = useState<Friend[]>([]);
+
 
   useEffect(() => {
     loadMessages();
@@ -1101,7 +1103,9 @@ const ChatGroupScreen = () => {
   // Thêm thành viên vào nhóm
   const handleAddMembers = async (emails: string[]) => {
     try {
+      console.log('Mời các email:', emails);
       const response = await addGroupMembers(groupId, emails);
+      console.log('Phản hồi từ server:', response);
       if (response.success) {
         Alert.alert('Thành công', 'Đã thêm thành viên vào nhóm');
         socketService.emit('groupMembersUpdated', { groupId });
@@ -1176,6 +1180,9 @@ const ChatGroupScreen = () => {
     // Join the group room
     socketService.joinGroup(groupId);
 
+    socketService.emit('groupMembersUpdated', { groupId });
+
+
     return () => {
       socketService.off('newGroupMessage', handleNewMessage);
       socketService.off('groupNameChanged', handleNameChange);
@@ -1225,6 +1232,7 @@ const ChatGroupScreen = () => {
               <Ionicons name="person-add" size={24} color="#fff" />
             </TouchableOpacity>
           )}
+          
           <TouchableOpacity 
             style={styles.headerIcon}
             onPress={() => navigation.navigate('GroupInfo', { 
