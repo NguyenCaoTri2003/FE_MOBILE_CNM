@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Alert, Platform, ActivityIndicator } from 'react-native';
 import { Text, Avatar, ListItem } from '@rneui/themed';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome, Feather } from '@expo/vector-icons';
@@ -32,13 +32,11 @@ const ProfileScreen = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+  useFocusEffect(
+    useCallback(() => {
       setActiveTab('profile');
-    });
-
-    return unsubscribe;
-  }, [navigation]);
+    }, [])
+  );
 
   const fetchUserProfile = async () => {
     try {

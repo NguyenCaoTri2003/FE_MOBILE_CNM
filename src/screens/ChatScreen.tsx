@@ -14,9 +14,7 @@ import {
   recallMessage, 
   deleteMessage,
   getFriends,
-  Message,
-  ChatResponse,
-  SendMessageResponse
+  Message
 } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -38,6 +36,12 @@ type RouteParams = {
   lastSeen?: string;
   messageToForward?: Message;
 };
+
+interface MessageReaction {
+  messageId: string;
+  reaction: string;
+  senderEmail: string;
+}
 
 const EMOJIS = [
   // Mặt cười
@@ -78,9 +82,7 @@ const REACTIONS = [
   { emoji: '😄', name: 'haha', type: 'reaction' },
   { emoji: '😮', name: 'wow', type: 'reaction' },
   { emoji: '😢', name: 'sad', type: 'reaction' },
-  { emoji: '😠', name: 'angry', type: 'reaction' },
-  { emoji: '📋', name: 'copy', type: 'action' },
-  { emoji: '↪️', name: 'forward', type: 'action' }
+  { emoji: '😠', name: 'angry', type: 'reaction' }
 ];
 
 const ChatScreen = () => {
@@ -774,13 +776,16 @@ const ChatScreen = () => {
 
   const handleDelete = async (messageId: string) => {
     try {
+      // Gọi API xóa tin nhắn chỉ cho người gửi
       await deleteMessage(messageId);
-      // Remove the message from the messages state
+      // Chỉ xóa tin nhắn khỏi state local
       setMessages(prevMessages => 
         prevMessages.filter(msg => msg.messageId !== messageId)
       );
+      Alert.alert('Thành công', 'Tin nhắn đã được xóa');
     } catch (error) {
       console.error('Error deleting message:', error);
+      Alert.alert('Lỗi', 'Không thể xóa tin nhắn. Vui lòng thử lại.');
     }
   };
 
@@ -1094,17 +1099,31 @@ const ChatScreen = () => {
     };
 
     const renderReactions = () => {
-      if (!item.reactions || item.reactions.length === 0) return null;
-      
+      if (!item.reactions || item.reactions.length === 0) {
+        return null;
+      }
+
+      // Group reactions by emoji
+      const reactionGroups = item.reactions.reduce((acc, reaction) => {
+        if (!acc[reaction.reaction]) {
+          acc[reaction.reaction] = [];
+        }
+        acc[reaction.reaction].push(reaction);
+        return acc;
+      }, {} as { [key: string]: MessageReaction[] });
+
       return (
         <View style={[
           styles.reactionsContainer,
           isMe ? styles.myReactionsContainer : styles.theirReactionsContainer
         ]}>
-          {item.reactions.map((reaction, index: number) => (
-            <Text key={`${reaction.messageId}-${index}`} style={styles.reactionEmoji}>
-              {reaction.reaction}
-            </Text>
+          {Object.entries(reactionGroups).map(([emoji, reactions]) => (
+            <View key={`${item.messageId}-${emoji}`} style={styles.reactionBadge}>
+              <Text style={styles.reactionEmojiText}>{emoji}</Text>
+              {reactions.length > 1 && (
+                <Text style={styles.reactionCount}>{reactions.length}</Text>
+              )}
+            </View>
           ))}
         </View>
       );
@@ -1113,15 +1132,8 @@ const ChatScreen = () => {
     return (
       <TouchableOpacity
         onLongPress={() => {
-          if (isMe) {
-            // Nếu là tin nhắn của mình, hiện menu thu hồi/xóa
-            setSelectedMessageForActions(item);
-            setShowMessageActions(true);
-          } else {
-            // Nếu là tin nhắn của người khác, hiện menu reaction
-            setSelectedMessage(item);
-            setShowReactions(true);
-          }
+          setSelectedMessage(item);
+          setShowMessageActions(true);
         }}
         delayLongPress={200}
         activeOpacity={0.7}
@@ -1146,7 +1158,18 @@ const ChatScreen = () => {
             {renderReactions()}
             <View style={styles.messageFooter}>
               <Text style={[styles.messageTime, !isMe && { color: 'rgba(0, 0, 0, 0.5)' }]}>
-                {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: vi })}
+                {(() => {
+                  try {
+                    const date = new Date(item.createdAt);
+                    if (isNaN(date.getTime())) {
+                      return 'Thời gian không hợp lệ';
+                    }
+                    return formatDistanceToNow(date, { addSuffix: true, locale: vi });
+                  } catch (error) {
+                    console.error('Error formatting date:', error);
+                    return 'Thời gian không hợp lệ';
+                  }
+                })()}
               </Text>
               {isMe && (
                 <Text style={[
@@ -1177,6 +1200,156 @@ const ChatScreen = () => {
     }
   }, [messageToForward]);
 
+  useEffect(() => {
+    const loadMessages = async () => {
+      try {
+        console.log('Loading messages for:', receiverEmail);
+        const response = await getMessages(receiverEmail);
+        if (response.success) {
+          // Sắp xếp tin nhắn theo thời gian tăng dần (cũ nhất lên đầu)
+          const sortedMessages = response.data.sort((a, b) => {
+            const dateA = new Date(a.createdAt).getTime();
+            const dateB = new Date(b.createdAt).getTime();
+            return dateA - dateB;
+          });
+          setMessages(sortedMessages);
+          
+          // Mark messages as read if user has interacted with the screen
+          if (hasInteracted) {
+            const unreadMessages = sortedMessages.filter(
+              msg => msg.status !== 'read' && msg.senderEmail === receiverEmail
+            );
+            
+            // Batch mark messages as read
+            if (unreadMessages.length > 0) {
+              const messageIds = unreadMessages.map(msg => msg.messageId);
+              if (socket.current) {
+                socket.current.emit('messagesRead', {
+                  messageIds,
+                  senderEmail: receiverEmail
+                });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Load messages initially
+    loadMessages();
+
+    // Set up polling interval
+    const interval = setInterval(loadMessages, 3000);
+
+    // Clean up interval on unmount
+    return () => clearInterval(interval);
+  }, [receiverEmail, hasInteracted]);
+
+  const renderReactionAndActionModal = () => {
+    return (
+      <Modal
+        visible={showMessageActions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMessageActions(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMessageActions(false)}
+        >
+          <View style={styles.modalContent}>
+            {selectedMessage && (
+              <View style={styles.messageActions}>
+                {/* Reactions Section */}
+                <View style={styles.reactionsSection}>
+                  {REACTIONS.map((reaction) => (
+                    <TouchableOpacity
+                      key={reaction.name}
+                      style={styles.reactionButton}
+                      onPress={() => {
+                        handleReaction(selectedMessage.messageId, reaction.emoji);
+                        setShowMessageActions(false);
+                      }}
+                    >
+                      <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Message Actions Section */}
+                <View style={styles.messageActionsSection}>
+                  {/* Common actions for all messages */}
+                  <TouchableOpacity 
+                    style={styles.messageActionButton}
+                    onPress={() => {
+                      setShowMessageActions(false);
+                      handleCopyText(selectedMessage);
+                    }}
+                  >
+                    <Ionicons name="copy-outline" size={24} color="#666" />
+                    <Text style={styles.messageActionText}>Sao chép</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={styles.messageActionButton}
+                    onPress={() => {
+                      setShowMessageActions(false);
+                      setSelectedMessageForActions(selectedMessage);
+                      setShowForwardModal(true);
+                    }}
+                  >
+                    <Ionicons name="share-outline" size={24} color="#666" />
+                    <Text style={styles.messageActionText}>Chuyển tiếp</Text>
+                  </TouchableOpacity>
+
+                  {/* Actions only for own messages */}
+                  {selectedMessage.senderEmail !== receiverEmail && (
+                    <>
+                      {(() => {
+                        const messageTime = new Date(selectedMessage.createdAt).getTime();
+                        const currentTime = new Date().getTime();
+                        const timeDiff = currentTime - messageTime;
+                        const canRecall = timeDiff <= 2 * 60 * 1000; // 2 phút
+                        return canRecall && (
+                          <TouchableOpacity 
+                            style={styles.messageActionButton}
+                            onPress={() => {
+                              setShowMessageActions(false);
+                              handleRecall(selectedMessage.messageId);
+                            }}
+                          >
+                            <Ionicons name="refresh" size={24} color="#666" />
+                            <Text style={styles.messageActionText}>Thu hồi</Text>
+                          </TouchableOpacity>
+                        );
+                      })()}
+
+                      <TouchableOpacity 
+                        style={styles.messageActionButton}
+                        onPress={() => {
+                          setShowMessageActions(false);
+                          handleDelete(selectedMessage.messageId);
+                        }}
+                      >
+                        <Ionicons name="trash" size={24} color="#666" />
+                        <Text style={styles.messageActionText}>Xóa</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
@@ -1196,7 +1369,7 @@ const ChatScreen = () => {
             <View style={styles.nameContainer}>
               <Text style={styles.userName}>{fullName}</Text>
               <Text style={styles.lastSeen}>
-                {lastSeen || 'Truy cập 4 giờ trước'}
+                {lastSeen ? formatDistanceToNow(new Date(lastSeen), { addSuffix: true, locale: vi }) : 'Đang hoạt động'}
               </Text>
             </View>
           </View>
@@ -1330,84 +1503,7 @@ const ChatScreen = () => {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Reaction Modal */}
-      <Modal
-        visible={showReactions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowReactions(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowReactions(false)}
-        >
-          <View style={styles.reactionMenu}>
-            {REACTIONS.map((reaction, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.reactionButton}
-                onPress={() => {
-                  if (!selectedMessage) return;
-                  
-                  if (reaction.type === 'reaction') {
-                    handleReaction(selectedMessage.messageId, reaction.emoji);
-                  } else if (reaction.type === 'action') {
-                    if (reaction.name === 'copy') {
-                      handleCopyText(selectedMessage);
-                    } else if (reaction.name === 'forward') {
-                      handleForwardFromReaction(selectedMessage);
-                    }
-                  }
-                }}
-              >
-                <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Message Actions Modal */}
-      <Modal
-        visible={showMessageActions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowMessageActions(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowMessageActions(false)}
-        >
-          <View style={styles.messageActionsMenu}>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => selectedMessageForActions && handleRecall(selectedMessageForActions.messageId)}
-            >
-              <Ionicons name="refresh-outline" size={24} color="#0068ff" />
-              <Text style={styles.messageActionText}>Thu hồi</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => selectedMessageForActions && handleDelete(selectedMessageForActions.messageId)}
-            >
-              <Ionicons name="trash-outline" size={24} color="#ff3b30" />
-              <Text style={[styles.messageActionText, { color: '#ff3b30' }]}>Xóa</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => {
-                setShowMessageActions(false);
-                setShowForwardModal(true);
-              }}
-            >
-              <Ionicons name="arrow-redo-outline" size={24} color="#34c759" />
-              <Text style={[styles.messageActionText, { color: '#34c759' }]}>Chuyển tiếp</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {renderReactionAndActionModal()}
 
       {/* Forward Modal */}
       <Modal
@@ -1643,17 +1739,19 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-start',
     paddingHorizontal: 10,
+    width: '100%',
   },
   emojiButton: {
-    width: '12.5%', // 8 emoji mỗi hàng
+    width: '11.11%', // 9 emoji mỗi hàng thay vì 8
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 5,
+    padding: 4,
   },
   emojiText: {
-    fontSize: 22,
+    fontSize: 20, // Giảm kích thước font xuống một chút
     color: '#000',
+    textAlign: 'center',
   },
   imageContainer: {
     borderRadius: 10,
@@ -1741,68 +1839,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  reactionMenu: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    borderRadius: 30,
-    padding: 8,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    flexWrap: 'wrap',
-    maxWidth: '80%',
-    justifyContent: 'center',
-  },
-  reactionButton: {
-    padding: 8,
-    marginHorizontal: 4,
-  },
-  reactionEmoji: {
-    fontSize: 20,
-    marginHorizontal: 2,
-  },
-  reactionsContainer: {
-    flexDirection: 'row',
-    position: 'absolute',
-    bottom: -15,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    zIndex: 1,
-  },
-  myReactionsContainer: {
-    left: 10,
-  },
-  theirReactionsContainer: {
-    right: 10,
-  },
-  recalledBubble: {
-    backgroundColor: '#f0f0f0',
-    opacity: 0.8,
-  },
-  recalledText: {
-    color: '#666',
-    fontStyle: 'italic',
-    fontSize: 14,
-  },
-  messageActionsMenu: {
+  modalContent: {
     backgroundColor: 'white',
     borderRadius: 15,
     padding: 15,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    width: '80%',
+    margin: 20,
+    maxWidth: '90%',
+  },
+  messageActions: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    width: '90%',
+    maxWidth: 300,
+  },
+  reactionsSection: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    gap: 2,
+  },
+  reactionButton: {
+    padding: 4,
+    marginHorizontal: 2,
+  },
+  reactionEmoji: {
+    fontSize: 18,
+    marginHorizontal: 1,
+  },
+  messageActionsSection: {
+    marginTop: 10,
   },
   messageActionButton: {
     flexDirection: 'row',
@@ -1869,6 +1938,59 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     fontSize: 16,
     color: '#333',
+  },
+  reactionsContainer: {
+    flexDirection: 'row',
+    position: 'absolute',
+    bottom: -8,
+    backgroundColor: 'white',
+    borderRadius: 6,
+    paddingHorizontal: 2,
+    paddingVertical: 0,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0.5 },
+    shadowOpacity: 0.1,
+    shadowRadius: 0.5,
+    zIndex: 1,
+    maxWidth: '100%',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  myReactionsContainer: {
+    left: 4,
+  },
+  theirReactionsContainer: {
+    right: 4,
+  },
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderRadius: 3,
+    paddingHorizontal: 1,
+    paddingVertical: 0,
+    marginRight: 1,
+    borderWidth: 0,
+  },
+  reactionEmojiText: {
+    fontSize: 8,
+    lineHeight: 8,
+  },
+  reactionCount: {
+    fontSize: 6,
+    color: '#666',
+    marginLeft: 0,
+  },
+  recalledBubble: {
+    backgroundColor: '#f0f0f0',
+    opacity: 0.8,
+  },
+  recalledText: {
+    color: '#666',
+    fontStyle: 'italic',
+    fontSize: 14,
   },
 });
 

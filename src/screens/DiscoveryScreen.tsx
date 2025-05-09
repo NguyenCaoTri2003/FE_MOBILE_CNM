@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, SafeAreaView, StatusBar } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome, FontAwesome5 } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -10,6 +10,12 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const DiscoveryScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState('discover');
+
+  useFocusEffect(
+    useCallback(() => {
+      setActiveTab('discover');
+    }, [])
+  );
 
   const renderNewsItem = (title: string, image: string, time: string) => (
     <TouchableOpacity style={styles.newsItem}>

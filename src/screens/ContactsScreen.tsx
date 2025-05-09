@@ -8,6 +8,7 @@ import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendRequest, withdrawFriendRequest, getFriends, unfriend, getGroups } from '../services/api';
 import type { FriendRequest as BaseFriendRequest, Group, GroupMember } from '../services/api';
 import { socketService } from '../services/socket';
+import { useFocusEffect } from '@react-navigation/native';
 
 // Add type definitions at the top of the file
 declare global {
@@ -96,6 +97,12 @@ const ContactsScreen = () => {
   const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setActiveTab('contacts');
+    }, [])
+  );
 
   useEffect(() => {
     // Try to load from cache first
@@ -316,7 +323,7 @@ const ContactsScreen = () => {
     setTimeout(() => {
       socketService.emit('userStatus', { status: 'online' });
       // Join groups to get initial group list
-      socketService.joinGroups();
+      socketService.emit('joinGroups', {});
     }, 100);
 
     const unsubscribe = navigation.addListener('focus', () => {
@@ -328,7 +335,7 @@ const ContactsScreen = () => {
       }
       loadInitialData();
       // Join groups when screen is focused
-      socketService.joinGroups();
+      socketService.emit('joinGroups', {});
     });
 
     // Cleanup
@@ -799,6 +806,27 @@ const ContactsScreen = () => {
     navigation.navigate('CreateGroup');
   };
 
+  // Hàm xử lý nội dung tin nhắn cuối cùng của nhóm
+  const getGroupLastMessageContent = (lastMessage: any) => {
+    if (!lastMessage) return 'Chưa có tin nhắn';
+    // Nếu có metadata và fileType là image
+    if (lastMessage.metadata?.fileType?.startsWith('image')) {
+      return 'Đã gửi ảnh';
+    }
+    // Nếu có metadata và fileType là file (không phải image, video)
+    if (lastMessage.metadata?.fileType && !lastMessage.metadata.fileType.startsWith('image') && !lastMessage.metadata.fileType.startsWith('video')) {
+      return 'Đã gửi file';
+    }
+    // Nếu content là link amazonaws và không có metadata
+    if (typeof lastMessage.content === 'string' && lastMessage.content.includes('amazonaws.com')) {
+      if (lastMessage.content.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
+        return 'Đã gửi ảnh';
+      }
+      return 'Đã gửi file';
+    }
+    return lastMessage.content;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
@@ -1017,7 +1045,7 @@ const ContactsScreen = () => {
                             <View style={styles.groupItemContent}>
                               <Text style={styles.groupName}>{group.name}</Text>
                               <Text style={styles.groupLastMessage}>
-                                {group.lastMessage ? group.lastMessage.content : 'Chưa có tin nhắn'}
+                                {group.lastMessage ? getGroupLastMessageContent(group.lastMessage) : 'Chưa có tin nhắn'}
                               </Text>
                               <Text style={styles.groupTime}>
                                 {group.lastMessage ? formatTime(new Date(group.lastMessage.timestamp)) : ''}

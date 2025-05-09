@@ -1,30 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL } from '@env';
 
-const SOCKET_URL = API_BASE_URL; // Using environment variable instead of hardcoded URL
-
-// Định nghĩa các interface cho group chat
-interface Group {
-  id: string;
-  name: string;
-  avatar: string;
-  members: string[];
-  creator: string;
-  lastMessage?: {
-    content: string;
-    sender: string;
-    timestamp: Date;
-  };
-  unreadCount?: number;
-}
-
-interface GroupMessage {
-  id: string;
-  content: string;
-  type: string;
-  sender: string;
-  timestamp: Date;
-}
+const SOCKET_URL = API_BASE_URL;
 
 interface SocketService {
   on(event: string, callback: (data: any) => void): void;
@@ -34,21 +11,6 @@ interface SocketService {
   connect(token: string): void;
   onProfileUpdate(callback: (data: { fullName: string; avatar: string; email: string }) => void): void;
   emitProfileUpdate(data: { fullName: string; avatar: string; email: string }): void;
-  
-  // Group chat methods
-  joinGroups(): void;
-  onCreateGroup(callback: (data: { group: Group }) => void): void;
-  onGroupList(callback: (data: { groups: Group[] }) => void): void;
-  onNewGroupMessage(callback: (data: { groupId: string; message: GroupMessage }) => void): void;
-  onGroupJoined(callback: (data: { group: Group }) => void): void;
-  onGroupMembersUpdated(callback: (data: { groupId: string; newMembers: string[] }) => void): void;
-  onGroupError(callback: (data: { error: string }) => void): void;
-  
-  emitCreateGroup(name: string, members: string[]): void;
-  emitGroupMessage(groupId: string, content: string, type?: string): void;
-  emitAddGroupMembers(groupId: string, newMembers: string[]): void;
-  joinGroup: (groupId: string) => void;
-  leaveGroup: (groupId: string) => void;
 }
 
 class SocketServiceImpl implements SocketService {
@@ -82,8 +44,6 @@ class SocketServiceImpl implements SocketService {
 
     this.socket.on('connect', () => {
       console.log('Socket connected successfully');
-      // Tự động join groups khi kết nối
-      this.joinGroups();
     });
 
     this.socket.on('connect_error', (error) => {
@@ -115,88 +75,6 @@ class SocketServiceImpl implements SocketService {
     this.socket.on('profileUpdate', (data) => {
       this.notifyListeners('profileUpdate', data);
     });
-
-    // Group chat events
-    this.socket.on('groupList', (data) => {
-      console.log('Received groupList:', data);
-      this.notifyListeners('groupList', data);
-    });
-
-    this.socket.on('groupCreated', (data) => {
-      console.log('Received groupCreated:', data);
-      this.notifyListeners('groupCreated', data);
-    });
-
-    this.socket.on('newGroupMessage', (data) => {
-      console.log('Received newGroupMessage:', data);
-      this.notifyListeners('newGroupMessage', data);
-    });
-
-    this.socket.on('groupJoined', (data) => {
-      console.log('Received groupJoined:', data);
-      this.notifyListeners('groupJoined', data);
-    });
-
-    this.socket.on('groupMembersUpdated', (data) => {
-      console.log('Received groupMembersUpdated:', data);
-      this.notifyListeners('groupMembersUpdated', data);
-    });
-
-    this.socket.on('groupError', (data) => {
-      console.error('Received groupError:', data);
-      this.notifyListeners('groupError', data);
-    });
-  }
-
-  // Group chat methods
-  joinGroups(): void {
-    console.log('Joining groups...');
-    if (this.socket) {
-      this.socket.emit('joinGroups');
-    }
-  }
-
-  onCreateGroup(callback: (data: { group: Group }) => void): void {
-    this.on('groupCreated', callback);
-  }
-
-  onGroupList(callback: (data: { groups: Group[] }) => void): void {
-    this.on('groupList', callback);
-  }
-
-  onNewGroupMessage(callback: (data: { groupId: string; message: GroupMessage }) => void): void {
-    this.on('newGroupMessage', callback);
-  }
-
-  onGroupJoined(callback: (data: { group: Group }) => void): void {
-    this.on('groupJoined', callback);
-  }
-
-  onGroupMembersUpdated(callback: (data: { groupId: string; newMembers: string[] }) => void): void {
-    this.on('groupMembersUpdated', callback);
-  }
-
-  onGroupError(callback: (data: { error: string }) => void): void {
-    this.on('groupError', callback);
-  }
-
-  emitCreateGroup(name: string, members: string[]): void {
-    this.emit('createGroup', { name, members });
-  }
-
-  emitGroupMessage(groupId: string, content: string, type: string = 'text'): void {
-    this.emit('groupMessage', {
-      groupId,
-      message: {
-        content,
-        type,
-        timestamp: new Date()
-      }
-    });
-  }
-
-  emitAddGroupMembers(groupId: string, newMembers: string[]): void {
-    this.emit('addGroupMembers', { groupId, newMembers });
   }
 
   onProfileUpdate(callback: (data: { fullName: string; avatar: string; email: string }) => void): void {
@@ -249,18 +127,6 @@ class SocketServiceImpl implements SocketService {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-    }
-  }
-
-  joinGroup(groupId: string): void {
-    if (this.socket) {
-      this.socket.emit('joinGroup', { groupId });
-    }
-  }
-
-  leaveGroup(groupId: string): void {
-    if (this.socket) {
-      this.socket.emit('leaveGroup', { groupId });
     }
   }
 }

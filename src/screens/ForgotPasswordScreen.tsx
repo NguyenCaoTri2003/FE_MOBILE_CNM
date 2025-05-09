@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -11,6 +10,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Input, Button } from '@rneui/themed';
 import { forgotPassword } from '../services/api';
 import Captcha from '../components/Captcha';
 import { RootStackParamList } from '../types/navigation';
@@ -102,17 +102,23 @@ const ForgotPasswordScreen = () => {
           </View>
         )}
 
-        <View style={styles.inputContainer}>
-          <MaterialIcons name="email" size={24} color="#0068ff" style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-        </View>
+        <Input
+          placeholder="Email"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          leftIcon={<MaterialIcons name="email" size={24} color="#595959" />}
+          containerStyle={styles.inputContainer}
+          inputStyle={styles.input}
+          errorMessage={emailError}
+          errorStyle={styles.errorText}
+          autoFocus={true}
+          selectionColor="#0068ff"
+          caretHidden={false}
+          placeholderTextColor="#999"
+          cursorColor="#0068ff"
+        />
 
         <Captcha
           value={captcha}
@@ -120,17 +126,14 @@ const ForgotPasswordScreen = () => {
           onCaptchaChange={setCaptchaCode}
         />
 
-        <TouchableOpacity
-          style={styles.button}
+        <Button
+          title="Gửi mã xác nhận"
           onPress={handleForgotPassword}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Gửi mã xác nhận</Text>
-          )}
-        </TouchableOpacity>
+          loading={loading}
+          containerStyle={styles.buttonContainer}
+          buttonStyle={styles.button}
+          titleStyle={styles.buttonText}
+        />
 
         <View style={styles.footer}>
           <TouchableOpacity onPress={() => navigation.navigate('Login')}>
@@ -147,11 +150,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     padding: 20,
+    justifyContent: 'center',
   },
   header: {
     alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 30,
+    marginBottom: 32,
   },
   title: {
     fontSize: 32,
@@ -164,7 +167,9 @@ const styles = StyleSheet.create({
     color: 'rgba(0, 0, 0, 0.45)',
   },
   form: {
-    marginTop: 20,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
   },
   errorContainer: {
     marginBottom: 16,
@@ -177,34 +182,28 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#ff4d4f',
     fontSize: 14,
+    margin: 0,
+    marginBottom: 16,
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d9d9d9',
-    borderRadius: 4,
     marginBottom: 16,
-    paddingHorizontal: 12,
-  },
-  icon: {
-    marginRight: 8,
   },
   input: {
-    flex: 1,
-    height: 40,
     fontSize: 16,
+    color: '#333',
+    height: 40,
+    paddingVertical: 0,
+  },
+  buttonContainer: {
+    marginTop: 24,
+    marginBottom: 16,
   },
   button: {
     backgroundColor: '#0068ff',
-    height: 40,
     borderRadius: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 16,
+    height: 48,
   },
   buttonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '500',
   },

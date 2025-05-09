@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar } from 'react-native';
 import { Text, Avatar } from '@rneui/themed';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { getFriends, getMessages, Message, Friend, getGroups, Group } from '../services/api';
+import { getFriends, getMessages, getGroups, Group } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
-import { socketService } from '../services/socket';
+import { io } from 'socket.io-client';
+import { API_BASE_URL } from '@env';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -40,113 +41,241 @@ const MessagesScreen = () => {
   const [activeTab, setActiveTab] = useState('messages');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isFromChat, setIsFromChat] = useState(false);
+  const socket = useRef<any>(null);
+  const pollingInterval = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
-    loadConversations();
-
-    // Socket event listeners for group updates
-    const handleGroupList = (data: { groups: Group[] }) => {
-      console.log('Received groupList:', data);
-      updateGroupConversations(data.groups);
-    };
-
-    const handleGroupCreated = (data: { group: Group }) => {
-      console.log('Received groupCreated:', data);
-      // Thêm nhóm mới vào danh sách ngay lập tức
-      const newGroup = data.group;
-      const newConversation: Conversation = {
-        id: newGroup.groupId,
-        type: 'group',
-        name: newGroup.name,
-        avatar: newGroup.avatar,
-        lastMessage: newGroup.lastMessage ? {
-          content: newGroup.lastMessage.content,
-          senderEmail: newGroup.lastMessage.senderEmail,
-          timestamp: newGroup.lastMessage.timestamp || new Date().toISOString(),
-          type: newGroup.lastMessage.type || 'text'
-        } : undefined
-      };
-
-      setConversations(prev => {
-        // Kiểm tra xem nhóm đã tồn tại chưa
-        const existingIndex = prev.findIndex(conv => conv.id === newGroup.groupId);
-        if (existingIndex !== -1) {
-          // Cập nhật nhóm nếu đã tồn tại
-          const updated = [...prev];
-          updated[existingIndex] = newConversation;
-          return sortConversationsByTime(updated);
+    const getCurrentUserEmail = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (token) {
+          const decoded = jwtDecode<{ email: string }>(token);
+          setCurrentUserEmail(decoded.email);
         }
-        // Thêm nhóm mới vào đầu danh sách
-        return sortConversationsByTime([newConversation, ...prev]);
-      });
+      } catch (error) {
+        console.error('Error getting current user email:', error);
+      }
     };
 
-    const handleGroupJoined = (data: { group: Group }) => {
-      console.log('Received groupJoined:', data);
-      addNewGroupConversation(data.group);
-    };
-
-    const handleGroupMembersUpdated = (data: { groupId: string, newMembers: any[] }) => {
-      console.log('Received groupMembersUpdated:', data);
-      updateGroupMembers(data.groupId, data.newMembers);
-    };
-
-    const handleNewGroupMessage = (data: { groupId: string, message: any }) => {
-      console.log('Received newGroupMessage:', data);
-      const { groupId, message } = data;
-      
-      setConversations(prev => {
-        const updated = prev.map(conv => {
-          if (conv.type === 'group' && conv.id === groupId) {
-            return {
-              ...conv,
-              lastMessage: {
-                content: message.content,
-                senderEmail: message.senderEmail,
-                timestamp: message.timestamp || new Date().toISOString(),
-                type: message.type || 'text'
-              }
-            };
-          }
-          return conv;
-        });
-        return sortConversationsByTime(updated);
-      });
-    };
-
-    // Subscribe to socket events
-    socketService.on('groupList', handleGroupList);
-    socketService.on('groupCreated', handleGroupCreated);
-    socketService.on('groupJoined', handleGroupJoined);
-    socketService.on('groupMembersUpdated', handleGroupMembersUpdated);
-    socketService.on('newGroupMessage', handleNewGroupMessage);
-
-    // Join groups when component mounts
-    socketService.joinGroups();
-
-    // Cleanup socket listeners
-    return () => {
-      socketService.off('groupList', handleGroupList);
-      socketService.off('groupCreated', handleGroupCreated);
-      socketService.off('groupJoined', handleGroupJoined);
-      socketService.off('groupMembersUpdated', handleGroupMembersUpdated);
-      socketService.off('newGroupMessage', handleNewGroupMessage);
-    };
+    getCurrentUserEmail();
   }, []);
 
-  // Thêm useEffect để load lại conversations khi focus vào màn hình
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      console.log('MessagesScreen focused, reloading conversations');
-      loadConversations();
-    });
+    const initializeSocket = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          console.log('No token found');
+          return;
+        }
 
-    return unsubscribe;
-  }, [navigation]);
+        // Initialize socket connection
+        const socketUrl = API_BASE_URL;
+        console.log('Initializing socket connection to:', socketUrl);
+        
+        if (socket.current) {
+          console.log('Disconnecting existing socket');
+          conversations.forEach(conv => {
+            if (conv.type === 'group') {
+              socket.current.emit('leaveGroup', { groupId: conv.id });
+            }
+          });
+          socket.current.disconnect();
+        }
+        
+        socket.current = io(socketUrl, {
+          transports: ['websocket', 'polling'],
+          upgrade: true,
+          rememberUpgrade: true,
+          auth: {
+            token
+          },
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          timeout: 20000,
+          path: '/socket.io/'
+        });
+
+        // Log socket connection status
+        socket.current.on('connect', () => {
+          console.log('Socket connected successfully with ID:', socket.current?.id);
+          // Khi kết nối lại, load lại danh sách cuộc trò chuyện
+          loadConversations();
+        });
+
+        socket.current.on('connect_error', (error: Error) => {
+          console.log('Socket connection error:', error.message);
+        });
+
+        socket.current.on('error', (error: Error) => {
+          console.log('Socket error:', error.message);
+        });
+
+        socket.current.on('disconnect', (reason: string) => {
+          console.log('Socket disconnected:', reason);
+        });
+
+        // Socket event listeners for group updates
+        socket.current.on('groupList', (data: { groups: Group[] }) => {
+          console.log('Received groupList:', data);
+          updateGroupConversations(data.groups);
+        });
+
+        socket.current.on('groupCreated', (data: { group: Group }) => {
+          console.log('Received groupCreated:', data);
+          const newGroup = data.group;
+          const newConversation: Conversation = {
+            id: newGroup.groupId,
+            type: 'group',
+            name: newGroup.name,
+            avatar: newGroup.avatar,
+            lastMessage: newGroup.lastMessage ? {
+              content: newGroup.lastMessage.content,
+              senderEmail: newGroup.lastMessage.senderEmail,
+              timestamp: newGroup.lastMessage.timestamp || new Date().toISOString(),
+              type: newGroup.lastMessage.type || 'text'
+            } : undefined
+          };
+
+          setConversations(prev => {
+            const existingIndex = prev.findIndex(conv => conv.id === newGroup.groupId);
+            if (existingIndex !== -1) {
+              const updated = [...prev];
+              updated[existingIndex] = newConversation;
+              return sortConversationsByTime(updated);
+            }
+            return sortConversationsByTime([newConversation, ...prev]);
+          });
+        });
+
+        socket.current.on('groupDeleted', (data: { groupId: string }) => {
+          console.log('Received groupDeleted:', data);
+          handleGroupDeleted(data.groupId);
+        });
+
+        socket.current.on('groupJoined', (data: { group: Group }) => {
+          console.log('Received groupJoined:', data);
+          addNewGroupConversation(data.group);
+        });
+
+        socket.current.on('groupMembersUpdated', (data: { groupId: string, newMembers: any[] }) => {
+          console.log('Received groupMembersUpdated:', data);
+          updateGroupMembers(data.groupId, data.newMembers);
+        });
+
+        // Xử lý tin nhắn mới
+        socket.current.on('newMessage', (data: { message: any }) => {
+          console.log('Received newMessage:', data);
+          const { message } = data;
+          setConversations(prev => {
+            const updated = prev.map(conv => {
+              if (conv.type === 'personal' && 
+                  (conv.id === message.senderEmail || conv.id === message.receiverEmail)) {
+                return {
+                  ...conv,
+                  lastMessage: {
+                    content: message.content,
+                    senderEmail: message.senderEmail,
+                    timestamp: message.timestamp || new Date().toISOString(),
+                    type: message.type || 'text',
+                    metadata: message.metadata
+                  }
+                };
+              }
+              return conv;
+            });
+            return sortConversationsByTime(updated);
+          });
+        });
+
+        socket.current.on('newGroupMessage', (data: { groupId: string, message: any }) => {
+          console.log('Received newGroupMessage:', data);
+          const { groupId, message } = data;
+          setConversations(prev => {
+            const updated = prev.map(conv => {
+              if (conv.type === 'group' && conv.id === groupId) {
+                return {
+                  ...conv,
+                  lastMessage: {
+                    content: message.content,
+                    senderEmail: message.senderEmail,
+                    timestamp: message.timestamp || new Date().toISOString(),
+                    type: message.type || 'text'
+                  }
+                };
+              }
+              return conv;
+            });
+            return sortConversationsByTime(updated);
+          });
+        });
+
+        // Load conversations lần đầu
+        loadConversations();
+
+        return () => {
+          if (socket.current) {
+            console.log('Cleaning up socket connection');
+            conversations.forEach(conv => {
+              if (conv.type === 'group') {
+                socket.current.emit('leaveGroup', { groupId: conv.id });
+              }
+            });
+            socket.current.disconnect();
+          }
+        };
+      } catch (error) {
+        console.log('Error initializing socket:', error);
+      }
+    };
+
+    initializeSocket();
+  }, []);
+
+  // Thêm useEffect để theo dõi thay đổi của conversations
+  useEffect(() => {
+    if (socket.current?.connected) {
+      // Join các nhóm khi danh sách conversations thay đổi
+      const groupIds = conversations
+        .filter(conv => conv.type === 'group')
+        .map(conv => conv.id);
+      
+      if (groupIds.length > 0) {
+        console.log('Joining groups:', groupIds);
+        socket.current.emit('joinGroups', { groupIds });
+      }
+    }
+  }, [conversations]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setActiveTab('messages');
+    }, [])
+  );
+
+  // Thêm useEffect để xử lý polling
+  useEffect(() => {
+    // Bắt đầu polling khi component mount
+    pollingInterval.current = setInterval(() => {
+      if (!isLoading) { // Chỉ load khi không đang trong quá trình load
+        loadConversations();
+      }
+    }, 3000); // Mỗi 3 giây
+
+    // Cleanup khi component unmount
+    return () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
+    };
+  }, [isLoading]); // Chỉ chạy lại khi loading thay đổi
 
   const updateGroupConversations = async (groups: Group[]) => {
-    console.log('Updating group conversations:', groups);
     try {
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
@@ -175,48 +304,58 @@ const MessagesScreen = () => {
         return sortConversationsByTime(allConversations);
       });
     } catch (error) {
-      console.error('Error updating group conversations:', error);
+      // Bỏ qua lỗi khi cập nhật danh sách nhóm
+      console.log('Error updating group conversations:', error);
     }
   };
 
   const addNewGroupConversation = (group: Group) => {
-    console.log('Adding new group conversation:', group);
-    const newConversation: Conversation = {
-      id: group.groupId,
-      type: 'group',
-      name: group.name,
-      avatar: group.avatar,
-      lastMessage: group.lastMessage ? {
-        content: group.lastMessage.content,
-        senderEmail: group.lastMessage.senderEmail,
-        timestamp: group.lastMessage.timestamp || new Date().toISOString(),
-        type: group.lastMessage.type || 'text'
-      } : undefined
-    };
+    try {
+      const newConversation: Conversation = {
+        id: group.groupId,
+        type: 'group',
+        name: group.name,
+        avatar: group.avatar,
+        lastMessage: group.lastMessage ? {
+          content: group.lastMessage.content,
+          senderEmail: group.lastMessage.senderEmail,
+          timestamp: group.lastMessage.timestamp || new Date().toISOString(),
+          type: group.lastMessage.type || 'text'
+        } : undefined
+      };
 
-    setConversations(prev => {
-      const existingIndex = prev.findIndex(conv => conv.id === group.groupId);
-      if (existingIndex !== -1) {
-        const updated = [...prev];
-        updated[existingIndex] = newConversation;
-        return sortConversationsByTime(updated);
-      }
-      return sortConversationsByTime([...prev, newConversation]);
-    });
+      setConversations(prev => {
+        const existingIndex = prev.findIndex(conv => conv.id === group.groupId);
+        if (existingIndex !== -1) {
+          const updated = [...prev];
+          updated[existingIndex] = newConversation;
+          return sortConversationsByTime(updated);
+        }
+        return sortConversationsByTime([...prev, newConversation]);
+      });
+    } catch (error) {
+      // Bỏ qua lỗi khi thêm nhóm mới
+      console.log('Error adding new group conversation:', error);
+    }
   };
 
   const updateGroupMembers = (groupId: string, newMembers: any[]) => {
-    setConversations(prev => {
-      return prev.map(conv => {
-        if (conv.type === 'group' && conv.id === groupId) {
-          return {
-            ...conv,
-            name: conv.name // You might want to update the group name if it changes
-          };
-        }
-        return conv;
+    try {
+      setConversations(prev => {
+        return prev.map(conv => {
+          if (conv.type === 'group' && conv.id === groupId) {
+            return {
+              ...conv,
+              name: conv.name
+            };
+          }
+          return conv;
+        });
       });
-    });
+    } catch (error) {
+      // Bỏ qua lỗi khi cập nhật thành viên nhóm
+      console.log('Error updating group members:', error);
+    }
   };
 
   const sortConversationsByTime = (conversations: Conversation[]) => {
@@ -233,7 +372,7 @@ const MessagesScreen = () => {
 
   const loadConversations = async () => {
     try {
-      setLoading(true);
+      setIsLoading(true);
       
       // Load friends and groups in parallel
       const [friendsResponse, groupsResponse] = await Promise.all([
@@ -251,10 +390,7 @@ const MessagesScreen = () => {
             try {
               const messagesResponse = await getMessages(friend.email);
               const messages = messagesResponse.success ? messagesResponse.data : [];
-              const lastMessage = messages[0];
-              const unreadCount = messages.filter(
-                msg => msg.status !== 'read' && msg.senderEmail === friend.email
-              ).length;
+              const lastMessage = messages[messages.length - 1];
 
               return {
                 id: friend.email,
@@ -267,11 +403,9 @@ const MessagesScreen = () => {
                   timestamp: lastMessage.createdAt,
                   type: lastMessage.type,
                   metadata: lastMessage.metadata
-                } : undefined,
-                unreadCount
+                } : undefined
               };
             } catch (error) {
-              console.error(`Error loading messages for ${friend.email}:`, error);
               return {
                 id: friend.email,
                 type: 'personal' as const,
@@ -305,12 +439,30 @@ const MessagesScreen = () => {
       // Sort all conversations by time
       setConversations(sortConversationsByTime(allConversations));
       
-      // Join groups through socket
-      socketService.joinGroups();
+      // Emit socket event to join groups
+      if (socket.current) {
+        const groupIds = allConversations
+          .filter(conv => conv.type === 'group')
+          .map(conv => conv.id);
+        
+        if (groupIds.length > 0) {
+          socket.current.emit('joinGroups', { groupIds });
+        }
+      }
     } catch (error) {
-      console.error('Error loading conversations:', error);
+      console.log('Error loading conversations:', error);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleGroupDeleted = (groupId: string) => {
+    // Xóa nhóm khỏi danh sách cuộc trò chuyện
+    setConversations(prev => prev.filter(conv => conv.id !== groupId));
+    
+    // Ngắt kết nối socket với nhóm đã bị giải tán
+    if (socket.current) {
+      socket.current.emit('leaveGroup', { groupId });
     }
   };
 
@@ -337,11 +489,20 @@ const MessagesScreen = () => {
       return 'Tin nhắn đã được thu hồi';
     }
     
-    // Check if content is a URL from S3
-    if (message.content.includes('amazonaws.com')) {
-      if (message.metadata?.fileType?.startsWith('image')) {
-        return '[Hình ảnh]';
+    // Nếu là file gửi từ S3
+    if (message.metadata?.fileType?.startsWith('image')) {
+      return 'Đã gửi ảnh';
+    }
+    if (message.metadata?.fileType && !message.metadata.fileType.startsWith('image') && !message.metadata.fileType.startsWith('video')) {
+      return 'Đã gửi file';
+    }
+    if (typeof message.content === 'string' && message.content.includes('amazonaws.com')) {
+      if (message.content.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
+        return 'Đã gửi ảnh';
       }
+      return 'Đã gửi file';
+    }
+    if (message.content.includes('amazonaws.com')) {
       if (message.metadata?.fileType?.startsWith('video')) {
         return '[Video]';
       }
@@ -355,27 +516,44 @@ const MessagesScreen = () => {
     const isGroup = item.type === 'group';
 
     const handlePress = () => {
+      try {
+        setIsFromChat(true); // Đánh dấu là đang chuyển đến màn hình chat
+        if (isGroup) {
+          navigation.navigate('ChatGroup', { 
+            groupId: item.id,
+            groupName: item.name,
+            avatar: item.avatar || ''
+          });
+        } else {
+          navigation.navigate('Chat', { 
+            fullName: item.name,
+            avatar: item.avatar || '',
+            receiverEmail: item.id
+          });
+        }
+      } catch (error) {
+        console.log('Error navigating to chat:', error);
+      }
+    };
+
+    const getLastMessageDisplay = () => {
+      if (!item.lastMessage || !item.lastMessage.senderEmail) return '';
+      
+      const messageContent = getMessageContent(item.lastMessage);
+      const isCurrentUser = item.lastMessage.senderEmail === currentUserEmail;
+
       if (isGroup) {
-        navigation.navigate('ChatGroup', { 
-          groupId: item.id,
-          groupName: item.name,
-          avatar: item.avatar || ''
-        });
+        return isCurrentUser 
+          ? `Bạn: ${messageContent}`
+          : `${item.lastMessage.senderEmail.split('@')[0]}: ${messageContent}`;
       } else {
-        navigation.navigate('Chat', { 
-          fullName: item.name,
-          avatar: item.avatar || '',
-          receiverEmail: item.id
-        });
+        return isCurrentUser ? `Bạn: ${messageContent}` : messageContent;
       }
     };
 
     return (
       <TouchableOpacity 
-        style={[
-          styles.conversationItem,
-          item.unreadCount ? styles.unreadConversation : null
-        ]}
+        style={styles.conversationItem}
         onPress={handlePress}
       >
         <View style={styles.avatarContainer}>
@@ -405,44 +583,48 @@ const MessagesScreen = () => {
               size={50}
             />
           )}
-          {item.unreadCount ? (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadCount}>{item.unreadCount}</Text>
-            </View>
-          ) : null}
         </View>
 
         <View style={styles.conversationDetails}>
           <View style={styles.conversationHeader}>
-            <Text style={[
-              styles.conversationName,
-              item.unreadCount ? styles.unreadName : null
-            ]} numberOfLines={1}>
+            <Text style={styles.conversationName} numberOfLines={1}>
               {item.name}
             </Text>
             {item.lastMessage && (
-              <Text style={[
-                styles.timeText,
-                item.unreadCount ? styles.unreadTime : null
-              ]}>
+              <Text style={styles.timeText}>
                 {formatTimeAgo(item.lastMessage.timestamp)}
               </Text>
             )}
           </View>
-          <Text style={[
-            styles.lastMessage,
-            item.unreadCount ? styles.unreadMessage : null
-          ]} numberOfLines={1}>
-            {item.lastMessage?.senderEmail && isGroup ? (
-              <Text style={styles.messageSender}>
-                {`${item.lastMessage.senderEmail.split('@')[0]}: `}
-              </Text>
-            ) : null}
-            {getMessageContent(item.lastMessage)}
+          <Text style={styles.lastMessage} numberOfLines={1}>
+            {getLastMessageDisplay()}
           </Text>
         </View>
       </TouchableOpacity>
     );
+  };
+
+  // Cập nhật tin nhắn mới nhất
+  const updateLastMessage = (conversationId: string, message: any, isGroup: boolean = false) => {
+    setConversations(prev => {
+      const updated = prev.map(conv => {
+        if ((isGroup && conv.type === 'group' && conv.id === conversationId) ||
+            (!isGroup && conv.type === 'personal' && conv.id === conversationId)) {
+          return {
+            ...conv,
+            lastMessage: {
+              content: message.content,
+              senderEmail: message.senderEmail,
+              timestamp: message.timestamp || new Date().toISOString(),
+              type: message.type || 'text',
+              metadata: message.metadata
+            }
+          };
+        }
+        return conv;
+      });
+      return sortConversationsByTime(updated);
+    });
   };
 
   return (
@@ -479,8 +661,8 @@ const MessagesScreen = () => {
         renderItem={renderConversationItem}
         keyExtractor={item => `${item.type}-${item.id}`}
         style={styles.list}
-        refreshing={loading}
         onRefresh={loadConversations}
+        refreshing={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
@@ -679,38 +861,6 @@ const styles = StyleSheet.create({
   },
   activeNavText: {
     color: '#0068ff',
-  },
-  unreadConversation: {
-    backgroundColor: '#f0f7ff',
-  },
-  unreadBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: '#0068ff',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-  },
-  unreadCount: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  unreadName: {
-    color: '#0068ff',
-    fontWeight: 'bold',
-  },
-  unreadTime: {
-    color: '#0068ff',
-    fontWeight: 'bold',
-  },
-  unreadMessage: {
-    color: '#0068ff',
-    fontWeight: '500',
   },
   groupAvatarContainer: {
     position: 'relative',

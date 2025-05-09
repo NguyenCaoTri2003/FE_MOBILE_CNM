@@ -12,24 +12,20 @@ import {
   addReactionToGroupMessage,
   recallGroupMessage, 
   deleteGroupMessage,
-  Message,
-  GroupMessage,
   searchUsers,
   getGroupMembers,
   getGroups,
   forwardGroupMessage,
   getFriends,
   addGroupMembers,
-  removeGroupMember
 } from '../services/api';
-import { formatDistanceToNow } from 'date-fns';
-import { vi } from 'date-fns/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import { jwtDecode } from 'jwt-decode';
-import { socketService } from '../services/socket';
+import { io } from 'socket.io-client';
+import { API_BASE_URL } from '@env';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -59,33 +55,8 @@ const REACTIONS = [
   { emoji: '😄', name: 'haha', type: 'reaction' },
   { emoji: '😮', name: 'wow', type: 'reaction' },
   { emoji: '😢', name: 'sad', type: 'reaction' },
-  { emoji: '😠', name: 'angry', type: 'reaction' },
-  { emoji: '📋', name: 'copy', type: 'action' },
-  { emoji: '↪️', name: 'forward', type: 'action' }
+  { emoji: '😠', name: 'angry', type: 'reaction' }
 ];
-const convertToEmoji = (text: string) => {
-  return text
-    .replace(/:\)/g, "😊")           // :) -> 😊
-    .replace(/:D/g, "😄")            // :D -> 😄
-    .replace(/:P/g, "😛")            // :P -> 😛
-    .replace(/:\/\//g, "😕")         // :// -> 😕 (hoặc có thể là :\// tùy chỉnh)
-    .replace(/<3/g, "❤️")            // <3 -> ❤️
-    .replace(/;\)/g, "😉")           // ;) -> 😉
-    .replace(/:O/g, "😲")            // :O -> 😲
-    .replace(/:'\(/g, "😢")           // :'( -> 😢
-    .replace(/XD/g, "😂")            // XD -> 😂
-    .replace(/:-\(/g, "☹️")          // :- ( -> ☹️
-    .replace(/:|/g, "😐")            // :| -> 😐
-    .replace(/:3/g, "😻")            // :3 -> 😻
-    .replace(/B-\)/g, "😎")          // B-) -> 😎
-    .replace(/<3/g, "❤️")            // <3 -> ❤️
-    .replace(/\(y\)/g, "👍")          // (y) -> 👍 (y = like)
-    .replace(/\(n\)/g, "👎")          // (n) -> 👎 (n = dislike)
-    .replace(/:\*/g, "😘");          // :* -> 😘
-};
-
-
-
 
 interface MessageReaction {
   messageId: string;
@@ -126,12 +97,7 @@ interface ApiResponse<T> {
 
 interface AddReactionResponse {
   success: boolean;
-  data: {
-    messageId: string;
-    reactions: {
-      [key: string]: string[];
-    };
-  };
+  data: ExtendedGroupMessage;
 }
 
 const isAddReactionResponse = (response: any): response is AddReactionResponse => {
@@ -156,6 +122,7 @@ interface Friend {
   email: string;
   fullName: string;
   avatar: string;
+  userId: string;
 }
 
 interface ForwardItem {
@@ -180,16 +147,12 @@ const ChatGroupScreen = () => {
   const [messages, setMessages] = useState<ExtendedGroupMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const socket = useRef<any>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout>();
-  const [hasInteracted, setHasInteracted] = useState(false);
   const [showEmojis, setShowEmojis] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<ExtendedGroupMessage | null>(null);
   const [showReactions, setShowReactions] = useState(false);
-  const [selectedMessageForActions, setSelectedMessageForActions] = useState<ExtendedGroupMessage | null>(null);
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [userAvatars, setUserAvatars] = useState<{ [key: string]: string }>({});
@@ -198,20 +161,368 @@ const ChatGroupScreen = () => {
   const [selectedMessageForForward, setSelectedMessageForForward] = useState<ExtendedGroupMessage | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [forwardTab, setForwardTab] = useState<'friends' | 'groups'>('friends');
   const [isLoadingForward, setIsLoadingForward] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [showAdminActions, setShowAdminActions] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [selectedFriendsToAdd, setSelectedFriendsToAdd] = useState<string[]>([]);
   const [friendsList, setFriendsList] = useState<Friend[]>([]);
-  const [groupMembers, setGroupMembers] = useState<Friend[]>([]);
-
+  const [lastMessageId, setLastMessageId] = useState<string>('');
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const pollingTimeoutRef = useRef<NodeJS.Timeout>();
+  const messageSet = useRef<Set<string>>(new Set());
+  // Thêm state để lưu danh sách thành viên hiện tại của nhóm
+  const [currentGroupMembers, setCurrentGroupMembers] = useState<string[]>([]);
 
   useEffect(() => {
+    const loadMessages = async () => {
+      try {
+        console.log('Loading messages for group:', groupId);
+        const response = await getGroupMessages(groupId);
+        console.log('Group messages response:', response);
+        
+        if (response.success && response.data.messages) {
+          const token = await AsyncStorage.getItem('token');
+          if (!token) return;
+          const decoded = jwtDecode<{ email: string }>(token);
+          const currentEmail = decoded.email;
+
+          const messagesWithInfo = await Promise.all(response.data.messages.map(async message => {
+            // Skip messages that are deleted for current user
+            if (message.deletedFor && message.deletedFor.includes(currentEmail)) {
+              return null;
+            }
+
+            const senderEmail = message.senderEmail;
+            const userResponse = await searchUsers(senderEmail);
+            const avatar = await fetchUserAvatar(senderEmail);
+            let forcedType = message.type;
+            if (isImageFile(message?.metadata?.fileName || '', message?.metadata?.fileType, message.content)) {
+              forcedType = 'image';
+            }
+            return {
+              ...message,
+              groupId,
+              senderName: userResponse.data?.fullName || 'Unknown',
+              senderAvatar: avatar,
+              isCurrentUser: senderEmail === currentEmail,
+              type: forcedType || 'text'
+            } as ExtendedGroupMessage;
+          }));
+
+          // Filter out null messages and sort by createdAt
+          const filteredMessages = messagesWithInfo.filter(msg => msg !== null);
+          const sortedMessages = filteredMessages.sort((a, b) => 
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+
+          // Update last message ID and message set
+          if (sortedMessages.length > 0) {
+            const lastMessage = sortedMessages[sortedMessages.length - 1];
+            setLastMessageId(lastMessage.messageId);
+            messageSet.current = new Set(sortedMessages.map(msg => msg.messageId));
+          }
+
+          setMessages(sortedMessages);
+          setIsInitialLoad(false);
+        } else {
+          console.error('Invalid response format:', response);
+          setMessages([]);
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+        Alert.alert('Lỗi', 'Không thể tải tin nhắn');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Load messages initially
     loadMessages();
-    setupSocketListeners();
-  }, []);
+
+    // Set up polling interval
+    const startPolling = () => {
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+      }
+
+      pollingTimeoutRef.current = setTimeout(async () => {
+        try {
+          const response = await getGroupMessages(groupId);
+          if (response.success && response.data.messages) {
+            const token = await AsyncStorage.getItem('token');
+            if (!token) return;
+            const decoded = jwtDecode<{ email: string }>(token);
+            const currentEmail = decoded.email;
+
+            const lastMessage = response.data.messages[response.data.messages.length - 1];
+            if (lastMessage && lastMessage.messageId !== lastMessageId) {
+              // Only load new messages
+              const newMessages = response.data.messages.filter(msg => !messageSet.current.has(msg.messageId));
+              if (newMessages.length > 0) {
+                const messagesWithInfo = await Promise.all(newMessages.map(async message => {
+                  const senderEmail = message.senderEmail;
+                  const userResponse = await searchUsers(senderEmail);
+                  const avatar = await fetchUserAvatar(senderEmail);
+                  let forcedType = message.type;
+                  if (isImageFile(message?.metadata?.fileName || '', message?.metadata?.fileType, message.content)) {
+                    forcedType = 'image';
+                  }
+                  return {
+                    ...message,
+                    groupId,
+                    senderName: userResponse.data?.fullName || 'Unknown',
+                    senderAvatar: avatar,
+                    isCurrentUser: senderEmail === currentEmail,
+                    type: forcedType || 'text'
+                  } as ExtendedGroupMessage;
+                }));
+
+                // Add new message IDs to set
+                messagesWithInfo.forEach(msg => messageSet.current.add(msg.messageId));
+
+                setMessages(prev => {
+                  const existingIds = new Set(prev.map(msg => msg.messageId));
+                  const uniqueNewMessages = messagesWithInfo.filter(msg => !existingIds.has(msg.messageId));
+                  const updatedMessages = [...prev, ...uniqueNewMessages];
+                  
+                  // Sort messages by createdAt
+                  return updatedMessages.sort((a, b) => 
+                    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                  );
+                });
+                setLastMessageId(messagesWithInfo[messagesWithInfo.length - 1].messageId);
+
+                // Scroll to bottom after adding new messages
+                if (flatListRef.current) {
+                  flatListRef.current.scrollToEnd({ animated: true });
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking for new messages:', error);
+        }
+        startPolling();
+      }, 5000); // Increased polling interval to 5 seconds
+    };
+
+    if (!isInitialLoad) {
+      startPolling();
+    }
+
+    // Clean up interval on unmount
+    return () => {
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+      }
+    };
+  }, [groupId, lastMessageId, isInitialLoad]);
+
+  useEffect(() => {
+    const initializeSocket = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          console.error('No token found');
+          return;
+        }
+
+        // Initialize socket connection
+        const socketUrl = API_BASE_URL;
+        console.log('Initializing socket connection to:', socketUrl);
+        
+        if (socket.current) {
+          console.log('Disconnecting existing socket');
+          socket.current.disconnect();
+        }
+        
+        socket.current = io(socketUrl, {
+          transports: ['websocket', 'polling'],
+          upgrade: true,
+          rememberUpgrade: true,
+          auth: {
+            token
+          },
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          timeout: 20000,
+          path: '/socket.io/'
+        });
+
+        // Log socket connection status
+        socket.current.on('connect', () => {
+          console.log('Socket connected successfully with ID:', socket.current?.id);
+          // Join the group room
+          socket.current.emit('joinGroup', { groupId });
+        });
+
+        socket.current.on('connect_error', (error: Error) => {
+          console.error('Socket connection error:', error.message);
+        });
+
+        socket.current.on('error', (error: Error) => {
+          console.error('Socket error:', error.message);
+        });
+
+        socket.current.on('disconnect', (reason: string) => {
+          console.log('Socket disconnected:', reason);
+        });
+
+        // Socket event listeners
+        socket.current.on('newGroupMessage', async (data: { groupId: string, message: any }) => {
+          console.log('Received newGroupMessage event:', data);
+          if (data.groupId === groupId) {
+            try {
+              const token = await AsyncStorage.getItem('token');
+              if (!token) return;
+
+              const decoded = jwtDecode<{ email: string }>(token);
+              const userResponse = await searchUsers(data.message.senderEmail);
+              const avatar = await fetchUserAvatar(data.message.senderEmail);
+              let forcedType = data.message.type;
+              if (isImageFile(data.message?.metadata?.fileName || '', data.message?.metadata?.fileType, data.message.content)) {
+                forcedType = 'image';
+              }
+              const newMessage: ExtendedGroupMessage = {
+                ...data.message,
+                groupId,
+                senderName: userResponse.data?.fullName || 'Unknown',
+                senderAvatar: avatar,
+                isCurrentUser: data.message.senderEmail === decoded.email,
+                type: forcedType || 'text'
+              };
+
+              console.log('Adding new message to state:', newMessage);
+
+              setMessages(prev => {
+                const messageExists = prev.some(msg => msg.messageId === newMessage.messageId);
+                if (!messageExists) {
+                  const updatedMessages = [...prev, newMessage];
+                  console.log('Updated messages:', updatedMessages);
+                  // Update last message ID
+                  setLastMessageId(newMessage.messageId);
+                  return updatedMessages;
+                }
+                return prev;
+              });
+
+              // Scroll to bottom after adding new message
+              if (flatListRef.current) {
+                flatListRef.current.scrollToEnd({ animated: true });
+              }
+            } catch (error) {
+              console.error('Error handling new message:', error);
+            }
+          }
+        });
+
+        // Listen for message sent confirmation
+        socket.current.on('groupMessageSent', (data: { success: boolean, messageId: string }) => {
+          console.log('Message sent confirmation:', data);
+          if (!data.success) {
+            Alert.alert('Lỗi', 'Không thể gửi tin nhắn');
+          }
+        });
+
+        socket.current.on('groupNameChanged', (data: { groupId: string, newName: string }) => {
+          console.log('Received groupNameChanged:', data);
+          if (data.groupId === groupId) {
+            navigation.setParams({ groupName: data.newName });
+          }
+        });
+
+        socket.current.on('groupAvatarChanged', (data: { groupId: string, newAvatar: string }) => {
+          console.log('Received groupAvatarChanged:', data);
+          if (data.groupId === groupId) {
+            navigation.setParams({ avatar: data.newAvatar });
+          }
+        });
+
+        socket.current.on('groupMembersUpdated', async (data: { groupId: string, newMembers: any[] }) => {
+          console.log('Received groupMembersUpdated:', data);
+          if (data.groupId === groupId) {
+            setMemberCount(data.newMembers.length);
+            const token = await AsyncStorage.getItem('token');
+            if (token) {
+              const decoded = jwtDecode<{ email: string }>(token);
+              const isUserAdmin = data.newMembers.some(
+                (member: any) => member.email === decoded.email && member.role === 'admin'
+              );
+              setIsAdmin(isUserAdmin);
+            }
+          }
+        });
+
+        socket.current.on('messageReaction', (data: { messageId: string, reaction: string, senderEmail: string }) => {
+          console.log('Received messageReaction event:', data);
+          setMessages(prevMessages => {
+            return prevMessages.map(msg => {
+              if (msg.messageId === data.messageId) {
+                const reactionExists = msg.reactions?.some(
+                  r => r.senderEmail === data.senderEmail && r.reaction === data.reaction
+                );
+                
+                if (reactionExists) {
+                  return {
+                    ...msg,
+                    reactions: msg.reactions?.filter(
+                      r => !(r.senderEmail === data.senderEmail && r.reaction === data.reaction)
+                    ) || []
+                  };
+                } else {
+                  return {
+                    ...msg,
+                    reactions: [...(msg.reactions || []), {
+                      messageId: data.messageId,
+                      reaction: data.reaction,
+                      senderEmail: data.senderEmail
+                    }]
+                  };
+                }
+              }
+              return msg;
+            });
+          });
+        });
+
+        socket.current.on('messageRecalled', (data: { messageId: string, senderEmail: string }) => {
+          console.log('Received messageRecalled:', data);
+          setMessages(prevMessages => {
+            return prevMessages.map(msg => {
+              if (msg.messageId === data.messageId) {
+                return {
+                  ...msg,
+                  isRecalled: true,
+                  content: 'Tin nhắn đã được thu hồi'
+                };
+              }
+              return msg;
+            });
+          });
+        });
+
+        socket.current.on('messageDeleted', (data: { messageId: string }) => {
+          console.log('Received messageDeleted:', data);
+          setMessages(prevMessages => {
+            return prevMessages.filter(msg => msg.messageId !== data.messageId);
+          });
+        });
+
+        return () => {
+          if (socket.current) {
+            console.log('Cleaning up socket connection');
+            socket.current.emit('leaveGroup', { groupId });
+            socket.current.disconnect();
+          }
+        };
+      } catch (error) {
+        console.error('Error initializing socket:', error);
+      }
+    };
+
+    initializeSocket();
+  }, [groupId]);
 
   useEffect(() => {
     const getCurrentUserEmail = async () => {
@@ -316,12 +627,40 @@ const ChatGroupScreen = () => {
       fetchFriends();
     }
   }, [showAddMemberModal]);
-  
+
+  useEffect(() => {
+    if (showAddMemberModal) {
+      const fetchData = async () => {
+        try {
+          // Lấy danh sách bạn bè
+          const friendsResponse = await getFriends();
+          if (friendsResponse.success) {
+            setFriendsList(friendsResponse.data);
+          }
+
+          // Lấy danh sách thành viên hiện tại của nhóm
+          const membersResponse = await getGroupMembers(groupId);
+          if (membersResponse.success) {
+            const memberEmails = membersResponse.data.members.map((member: any) => member.email);
+            setCurrentGroupMembers(memberEmails);
+          }
+        } catch (err) {
+          console.error('Lỗi tải dữ liệu:', err);
+        }
+      };
+      fetchData();
+    }
+  }, [showAddMemberModal, groupId]);
 
   const fetchUserAvatar = async (email: string) => {
     try {
+      if (!email) {
+        console.warn('No email provided to fetchUserAvatar');
+        return 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
+      }
+
       const response = await searchUsers(email);
-      if (response.success && response.data) {
+      if (response.success && response.data && response.data.avatar) {
         setUserAvatars(prev => ({
           ...prev,
           [email]: response.data.avatar
@@ -335,99 +674,62 @@ const ChatGroupScreen = () => {
     }
   };
 
-  const loadMessages = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) return;
-
-      const decoded = jwtDecode<{ email: string; id: string }>(token);
-      console.log('Current user email in loadMessages:', decoded.email);
-      
-      const response = await getGroupMessages(groupId);
-      console.log('Group messages response:', response);
-      
-      if (response.success && response.data.messages) {
-        const messagesWithInfo = await Promise.all(response.data.messages.map(async message => {
-          const avatar = await fetchUserAvatar(message.senderEmail);
-          return {
-            ...message,
-            groupId,
-            senderName: message.senderEmail,
-            senderAvatar: avatar,
-            isCurrentUser: message.senderEmail === decoded.email
-          } as ExtendedGroupMessage;
-        }));
-        setMessages(messagesWithInfo);
-      } else {
-        console.error('Invalid response format:', response);
-        setMessages([]);
-      }
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      Alert.alert('Lỗi', 'Không thể tải tin nhắn');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
 
     try {
-      // Lưu tin nhắn hiện tại để hiển thị ngay lập tức
-      const messageToShow = newMessage.trim();
-      setNewMessage('');
-      
-      // Tạo tin nhắn tạm thời để hiển thị ngay lập tức
-      const tempMessage: ExtendedGroupMessage = {
-        messageId: `temp-${Date.now()}`,
-        groupId,
-        senderEmail: currentUserEmail,
-        receiverEmail: groupId,
-        content: messageToShow,
-        createdAt: new Date().toISOString(),
-        status: 'sending',
-        type: 'text',
-        senderName: currentUserEmail,
-        senderAvatar: await fetchUserAvatar(currentUserEmail),
-        isCurrentUser: true
-      };
-      
-      setMessages(prev => [...prev, tempMessage] as ExtendedGroupMessage[]);
-      
-      // Gửi tin nhắn qua socket để cải thiện tốc độ
-      socketService.emitGroupMessage(groupId, messageToShow);
-      
-      // Sau đó gửi qua API để lưu vào database
-      const response = await sendGroupMessage(groupId, messageToShow);
+      console.log('Sending message to group:', groupId);
+      const response = await sendGroupMessage(groupId, newMessage.trim());
+      console.log('Send message response:', response);
       
       if (response.success) {
-        // Cập nhật tin nhắn tạm thời với thông tin thực từ server
+        const token = await AsyncStorage.getItem('token');
+        if (!token) return;
+
+        const decoded = jwtDecode<{ email: string }>(token);
+        const userResponse = await searchUsers(decoded.email);
+        const avatar = await fetchUserAvatar(decoded.email);
+        
+        const newMessageWithInfo: ExtendedGroupMessage = {
+          ...response.data,
+          groupId,
+          senderName: userResponse.data?.fullName || 'Unknown',
+          senderAvatar: avatar,
+          isCurrentUser: true,
+          type: response.data.type || 'text'
+        };
+
+        // Add message ID to set
+        messageSet.current.add(newMessageWithInfo.messageId);
+
         setMessages(prev => {
-          return prev.map(msg => {
-            if (msg.messageId === tempMessage.messageId) {
-              return {
-                ...msg,
-                messageId: response.data.messageId,
-                status: 'sent'
-              };
-            }
-            return msg;
-          });
+          const existingIds = new Set(prev.map(msg => msg.messageId));
+          if (existingIds.has(newMessageWithInfo.messageId)) {
+            return prev;
+          }
+          return [...prev, newMessageWithInfo];
         });
+        setNewMessage('');
+        // Update last message ID
+        setLastMessageId(newMessageWithInfo.messageId);
+
+        if (socket.current) {
+          console.log('Emitting groupMessage event:', {
+            groupId,
+            message: newMessageWithInfo
+          });
+          socket.current.emit('groupMessage', {
+            groupId,
+            message: newMessageWithInfo
+          });
+        }
+
+        // Scroll to bottom immediately after sending
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
       } else {
-        // Đánh dấu tin nhắn là lỗi nếu gửi thất bại
-        setMessages(prev => {
-          return prev.map(msg => {
-            if (msg.messageId === tempMessage.messageId) {
-              return {
-                ...msg,
-                status: 'error'
-              };
-            }
-            return msg;
-          });
-        });
+        console.error('Failed to send message:', response);
         Alert.alert('Lỗi', 'Không thể gửi tin nhắn');
       }
     } catch (error) {
@@ -441,20 +743,27 @@ const ChatGroupScreen = () => {
     setShowEmojis(false);
   };
 
-  const handleFilePick = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true
-      });
+  const isImageFile = (fileName: string, mimeType?: string, url?: string): boolean => {
+    // Chuyển về chữ thường để kiểm tra không phân biệt hoa thường
+    const lowerFileName = fileName ? fileName.toLowerCase() : '';
+    const lowerUrl = url ? url.toLowerCase() : '';
 
-      if (result.assets && result.assets.length > 0) {
-        await handleFileUpload(result.assets[0]);
-      }
-    } catch (error) {
-      console.error('Error picking file:', error);
-      Alert.alert('Lỗi', 'Không thể chọn file');
+    // Kiểm tra URL từ S3
+    if (lowerUrl.includes('uploads3cnm.s3.amazonaws.com')) {
+      return lowerUrl.endsWith('.jpg') || 
+             lowerUrl.endsWith('.jpeg') || 
+             lowerUrl.endsWith('.png') || 
+             lowerUrl.endsWith('.gif') || 
+             lowerUrl.endsWith('.bmp');
     }
+
+    if (!lowerFileName) return false;
+    
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp'];
+    const hasImageExtension = imageExtensions.some(ext => lowerFileName.endsWith(ext));
+    const hasImageMimeType = mimeType ? mimeType.toLowerCase().startsWith('image/') : false;
+    
+    return hasImageExtension || hasImageMimeType;
   };
 
   const handleFileUpload = async (fileAsset: {
@@ -465,7 +774,8 @@ const ChatGroupScreen = () => {
   }) => {
     try {
       setUploading(true);
-      
+      console.log('File asset:', fileAsset);
+
       const formData = new FormData();
       formData.append('file', {
         uri: Platform.OS === 'android' ? fileAsset.uri : fileAsset.uri.replace('file://', ''),
@@ -474,18 +784,34 @@ const ChatGroupScreen = () => {
       } as any);
 
       const response = await uploadGroupFile(groupId, formData);
+      console.log('Upload response:', response);
       
       if (response.success) {
+        const fileMetadata = {
+          fileName: response.data.originalname,
+          fileSize: response.data.size,
+          fileType: response.data.mimetype,
+          fileUrl: response.data.url
+        };
+
+        console.log('File metadata:', fileMetadata);
+
+        // Force type 'image' if file is image
+        const isImage = isImageFile(
+          fileMetadata.fileName, 
+          fileMetadata.fileType, 
+          response.data.url
+        );
+        const forcedType = isImage ? 'image' : 'file';
+
         const messageResponse = await sendGroupMessage(
           groupId,
           response.data.url,
-          response.data.type,
-          {
-            fileName: fileAsset.name,
-            fileSize: fileAsset.size || 0,
-            fileType: fileAsset.mimeType || 'application/octet-stream'
-          }
+          forcedType,
+          fileMetadata
         );
+
+        console.log('Message response:', messageResponse);
 
         if (messageResponse.success) {
           const token = await AsyncStorage.getItem('token');
@@ -493,6 +819,7 @@ const ChatGroupScreen = () => {
 
           const decoded = jwtDecode<{ email: string; id: string }>(token);
           const avatar = await fetchUserAvatar(decoded.email);
+
           const newMessageWithInfo: ExtendedGroupMessage = {
             ...messageResponse.data,
             groupId,
@@ -504,14 +831,20 @@ const ChatGroupScreen = () => {
             senderName: decoded.email,
             senderAvatar: avatar,
             isCurrentUser: true,
-            type: response.data.type,
-            metadata: {
-              fileName: fileAsset.name,
-              fileSize: fileAsset.size || 0,
-              fileType: fileAsset.mimeType || 'application/octet-stream'
-            }
+            type: forcedType,
+            metadata: fileMetadata
           };
+
+          console.log('New message with info:', newMessageWithInfo);
+
           setMessages(prev => [...prev, newMessageWithInfo] as ExtendedGroupMessage[]);
+
+          if (socket.current) {
+            socket.current.emit('groupMessage', {
+              groupId,
+              message: newMessageWithInfo
+            });
+          }
         }
       }
     } catch (error) {
@@ -519,6 +852,32 @@ const ChatGroupScreen = () => {
       Alert.alert('Lỗi', 'Không thể tải lên file');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleFilePick = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true
+      });
+
+      console.log('Document picker result:', result); // Log để kiểm tra kết quả chọn file
+
+      if (result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        // Đảm bảo có đầy đủ thông tin file
+        const fileAsset = {
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType,
+          size: asset.size
+        };
+        await handleFileUpload(fileAsset);
+      }
+    } catch (error) {
+      console.error('Error picking file:', error);
+      Alert.alert('Lỗi', 'Không thể chọn file');
     }
   };
 
@@ -551,6 +910,7 @@ const ChatGroupScreen = () => {
         const response = await uploadGroupFile(groupId, formData);
         
         if (response.success) {
+          // Always set type 'image'
           const messageResponse = await sendGroupMessage(
             groupId,
             response.data.url,
@@ -599,68 +959,175 @@ const ChatGroupScreen = () => {
   };
 
   const handleReaction = async (messageId: string, emoji: string) => {
+    if (!currentUserEmail) {
+      console.warn('No currentUserEmail, cannot add reaction');
+      return;
+    }
+
     try {
-      if (emoji === '↪️') {
-        // Nếu là emoji forward, tìm tin nhắn và chuyển tiếp
-        const messageToForward = messages.find(msg => msg.messageId === messageId);
-        if (messageToForward) {
-          setSelectedMessageForForward(messageToForward);
-          setShowForwardModal(true);
-        }
+      console.log('Adding reaction:', { messageId, emoji, currentUserEmail });
+      
+      // Update local state immediately for better UX
+      setMessages(prevMessages => {
+        const updatedMessages = prevMessages.map(msg => {
+          if (msg.messageId === messageId) {
+            console.log('Found message to update:', msg);
+            // Check if this reaction already exists
+            const reactionExists = msg.reactions?.some(
+              r => r.senderEmail === currentUserEmail && r.reaction === emoji
+            );
+
+            if (reactionExists) {
+              // If reaction exists, remove it (toggle off)
+              const updatedReactions = msg.reactions?.filter(
+                r => !(r.senderEmail === currentUserEmail && r.reaction === emoji)
+              ) || [];
+              console.log('Removing reaction, updated reactions:', updatedReactions);
+              return {
+                ...msg,
+                reactions: updatedReactions
+              };
+            } else {
+              // If reaction doesn't exist, add it
+              const newReaction = {
+                messageId,
+                reaction: emoji,
+                senderEmail: currentUserEmail
+              };
+              const updatedReactions = [...(msg.reactions || []), newReaction];
+              console.log('Adding reaction, updated reactions:', updatedReactions);
+              return {
+                ...msg,
+                reactions: updatedReactions
+              };
+            }
+          }
+          return msg;
+        });
+        console.log('Updated messages:', updatedMessages);
+        return updatedMessages;
+      });
+
+      // Emit socket event
+      if (socket.current) {
+        console.log('Emitting messageReaction event:', {
+          groupId,
+          messageId,
+          reaction: emoji,
+          senderEmail: currentUserEmail
+        });
+        socket.current.emit('messageReaction', {
+          groupId,
+          messageId,
+          reaction: emoji,
+          senderEmail: currentUserEmail
+        });
+      }
+
+      // Call API to persist the reaction
+      const response = await addReactionToGroupMessage(groupId, messageId, emoji);
+      console.log('API response:', response);
+      
+      if (!isAddReactionResponse(response)) {
+        // If API call fails, revert the local state
+        setMessages(prevMessages =>
+          prevMessages.map(msg =>
+            msg.messageId === messageId
+              ? {
+                  ...msg,
+                  reactions: msg.reactions?.filter(
+                    r => !(r.senderEmail === currentUserEmail && r.reaction === emoji)
+                  ) || []
+                }
+              : msg
+          )
+        );
+        Alert.alert('Lỗi', 'Không thể thêm reaction');
         return;
       }
 
-      const response = await addReactionToGroupMessage(groupId, messageId, emoji);
-      const updatedMessage = response as ExtendedGroupMessage;
-      setMessages(prev => 
-        prev.map(msg => {
+      // Update the message with the API response data
+      setMessages(prevMessages => {
+        const updatedMessages = prevMessages.map(msg => {
           if (msg.messageId === messageId) {
             return {
               ...msg,
-              reactions: [
-                ...(msg.reactions || []),
-                {
-                  messageId,
-                  reaction: emoji,
-                  senderEmail: currentUserEmail
-                }
-              ]
-            } as ExtendedGroupMessage;
+              reactions: response.data.reactions || msg.reactions
+            };
           }
           return msg;
-        })
-      );
-      setShowReactions(false);
+        });
+        return updatedMessages;
+      });
+
     } catch (error) {
       console.error('Error adding reaction:', error);
+      // Revert local state on error
+      setMessages(prevMessages =>
+        prevMessages.map(msg =>
+          msg.messageId === messageId
+            ? {
+                ...msg,
+                reactions: msg.reactions?.filter(
+                  r => !(r.senderEmail === currentUserEmail && r.reaction === emoji)
+                ) || []
+              }
+            : msg
+        )
+      );
+      Alert.alert('Lỗi', 'Không thể thêm reaction');
     }
   };
 
   const handleRecall = async (messageId: string) => {
     try {
-      const response = await recallGroupMessage(groupId, messageId);
-      if (response) {
-        setMessages((prevMessages: ExtendedGroupMessage[]) => 
-          prevMessages.map((msg: ExtendedGroupMessage) => 
-            msg.messageId === messageId 
-              ? { ...msg, isRecalled: true, content: 'Tin nhắn đã được thu hồi' }
-              : msg
-          )
-        );
-        Alert.alert('Thành công', 'Đã thu hồi tin nhắn');
+      console.log('Attempting to recall message:', messageId);
+      const recalledMessage = await recallGroupMessage(groupId, messageId);
+      console.log('Recall response:', recalledMessage);
+      
+      // Update the message in the messages state
+      setMessages(prevMessages => 
+        prevMessages.map(msg => {
+          if (msg.messageId === messageId) {
+            return {
+              ...msg,
+              isRecalled: true,
+              content: 'Tin nhắn đã được thu hồi'
+            };
+          }
+          return msg;
+        })
+      );
+
+      // Emit socket event
+      if (socket.current) {
+        console.log('Emitting messageRecall event');
+        socket.current.emit('messageRecall', {
+          groupId,
+          messageId,
+          senderEmail: currentUserEmail
+        });
       }
+
+      Alert.alert('Thành công', 'Tin nhắn đã được thu hồi');
     } catch (error: any) {
       console.error('Error recalling message:', error);
-      Alert.alert('Lỗi', error.message || 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+      Alert.alert('Lỗi', error.message || 'Không thể thu hồi tin nhắn');
     }
   };
 
   const handleDelete = async (messageId: string) => {
     try {
       await deleteGroupMessage(groupId, messageId);
-      setMessages(prev => prev.filter(msg => msg.messageId !== messageId));
+      // Remove the message from the messages state
+      setMessages(prevMessages => 
+        prevMessages.filter(msg => msg.messageId !== messageId)
+      );
+
+      // No need to emit socket event since other users should still see the message
     } catch (error) {
       console.error('Error deleting message:', error);
+      Alert.alert('Lỗi', 'Không thể xóa tin nhắn');
     }
   };
 
@@ -670,20 +1137,6 @@ const ChatGroupScreen = () => {
       Alert.alert('Thành công', 'Đã sao chép văn bản');
     }
     setShowReactions(false);
-  };
-
-  const handleForward = async (targetGroupId: string) => {
-    if (!selectedMessageForForward) return;
-
-    try {
-      await forwardGroupMessage(groupId, selectedMessageForForward.messageId, targetGroupId);
-      setShowForwardModal(false);
-      setSelectedMessageForForward(null);
-      Alert.alert('Thành công', 'Tin nhắn đã được chuyển tiếp');
-    } catch (error) {
-      console.error('Error forwarding message:', error);
-      Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn');
-    }
   };
 
   const getForwardItems = (): ForwardItem[] => {
@@ -710,48 +1163,63 @@ const ChatGroupScreen = () => {
     return [...friendItems, ...groupItems];
   };
 
-  const handleForwardItemPress = async (item: ForwardItem) => {
-    console.log('Forwarding message to:', item);
-    console.log('Selected message:', selectedMessageForForward);
-    
-    if (!selectedMessageForForward) {
-      console.log('No message selected for forwarding');
-      return;
+  const handleForwardItemPress = async (item: any) => {
+    if (!selectedMessage) {
+        Alert.alert('Lỗi', 'Vui lòng chọn tin nhắn cần chuyển tiếp');
+        return;
+    }
+
+    if (selectedMessage.isRecalled) {
+        Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn đã thu hồi');
+        return;
     }
 
     try {
-      if (item.type === 'friend') {
-        console.log('Forwarding to friend:', item.data);
-        const friend = item.data as Friend;
-        // Close modal before navigating
-        setShowForwardModal(false);
-        setSelectedMessageForForward(null);
-        // Navigate to chat with the message to forward
-        navigation.navigate('Chat', {
-          receiverEmail: friend.email,
-          fullName: friend.fullName,
-          avatar: friend.avatar,
-          messageToForward: selectedMessageForForward
-        } as ChatRouteParams);
-      } else {
-        console.log('Forwarding to group:', item.data);
-        const group = item.data as Group;
-        try {
-          await forwardGroupMessage(groupId, selectedMessageForForward.messageId, group.groupId);
-          Alert.alert('Thành công', 'Tin nhắn đã được chuyển tiếp');
-          setShowForwardModal(false);
-          setSelectedMessageForForward(null);
-        } catch (forwardError: any) {
-          console.error('Forward error:', forwardError);
-          Alert.alert('Lỗi', forwardError.message || 'Không thể chuyển tiếp tin nhắn');
-          return;
+        const sourceGroupId = selectedMessage.groupId;
+        const messageId = selectedMessage.messageId;
+
+        console.log('Forwarding message:', {
+            sourceGroupId,
+            messageId,
+            targetType: item.type,
+            targetId: item.type === 'group' ? item.id : item.id // Use item.id for both cases
+        });
+
+        let response;
+        if (item.type === 'friend') {
+            response = await forwardGroupMessage(sourceGroupId, messageId, undefined, item.id);
+        } else {
+            response = await forwardGroupMessage(sourceGroupId, messageId, item.id);
         }
-      }
-    } catch (error: any) {
-      console.error('Error in handleForwardItemPress:', error);
-      Alert.alert('Lỗi', error.message || 'Không thể chuyển tiếp tin nhắn');
+
+        if (response.success) {
+            Alert.alert('Thành công', 'Đã chuyển tiếp tin nhắn');
+            
+            // Navigate to the appropriate chat screen
+            if (item.type === 'friend') {
+                navigation.navigate('Chat', {
+                    receiverEmail: item.id, // Use item.id instead of item.email
+                    fullName: item.name,
+                    avatar: item.avatar
+                });
+            } else {
+                navigation.navigate('ChatGroup', {
+                    groupId: item.id,
+                    groupName: item.name,
+                    avatar: item.avatar
+                });
+            }
+        } else {
+            Alert.alert('Lỗi', response.message || 'Không thể chuyển tiếp tin nhắn');
+        }
+    } catch (error) {
+        console.error('Error forwarding message:', error);
+        Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn');
+    } finally {
+        setSelectedMessage(null);
+        setShowForwardModal(false);
     }
-  };
+};
 
   const renderForwardModal = () => {
     return (
@@ -816,140 +1284,321 @@ const ChatGroupScreen = () => {
     }
   };
 
-  const renderMessage = ({ item }: { item: ExtendedGroupMessage }) => {
-    const isMe = item.senderEmail === currentUserEmail;
+  const formatTimeAgo = (timestamp: string) => {
+    try {
+      if (!timestamp) return '';
+      const messageDate = new Date(timestamp);
+      if (isNaN(messageDate.getTime())) return '';
+      
+      const now = new Date();
+      const diffInMinutes = Math.floor((now.getTime() - messageDate.getTime()) / (1000 * 60));
+      
+      if (diffInMinutes < 60) {
+        return `${diffInMinutes} phút trước`;
+      } else if (diffInMinutes < 1440) {
+        const hours = Math.floor(diffInMinutes / 60);
+        return `${hours} giờ trước`;
+      } else {
+        const days = Math.floor(diffInMinutes / 1440);
+        return `${days} ngày trước`;
+      }
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return '';
+    }
+  };
+
+  // Update MessageItem component
+  const MessageItem: React.FC<{
+    item: ExtendedGroupMessage;
+    onLongPress: () => void;
+    onImagePress: () => void;
+    onFilePress: () => void;
+    onCopyPress: () => void;
+  }> = React.memo(({ item, onLongPress, onImagePress, onFilePress, onCopyPress }) => {
+    const isCurrentUser = item.isCurrentUser;
     
-    return (
-      <TouchableOpacity
-        onLongPress={() => {
-          if (isMe) {
-            setSelectedMessageForActions(item);
-            setShowMessageActions(true);
-          } else {
-            setSelectedMessage(item);
-            setSelectedMessageForActions(item);
-            setShowReactions(true);
-          }
-        }}
-        delayLongPress={200}
-        activeOpacity={0.7}
-      >
-        <View style={[styles.messageContainer, isMe ? styles.myMessage : styles.theirMessage]}>
-          {!isMe && (
-            <Avatar
-              rounded
-              source={{ uri: item.senderAvatar }}
-              size={30}
-              containerStyle={styles.avatar}
-            />
-          )}
-          <View 
-            style={[
-              styles.messageBubble,
-              isMe ? styles.myBubble : styles.theirBubble,
-              isImageMessage(item) && styles.imageBubble
-            ]}
+    const renderReactions = () => {
+      if (!item.reactions || item.reactions.length === 0) {
+        return null;
+      }
+
+      // Group reactions by emoji
+      const reactionGroups = item.reactions.reduce((acc, reaction) => {
+        if (!acc[reaction.reaction]) {
+          acc[reaction.reaction] = [];
+        }
+        acc[reaction.reaction].push(reaction);
+        return acc;
+      }, {} as { [key: string]: MessageReaction[] });
+
+      return (
+        <View style={[
+          styles.reactionsContainer,
+          isCurrentUser ? styles.reactionsRight : styles.reactionsLeft
+        ]}>
+          {Object.entries(reactionGroups).map(([emoji, reactions]) => (
+            <View key={`${item.messageId}-${emoji}`} style={styles.reactionBadge}>
+              <Text style={styles.reactionEmojiText}>{emoji}</Text>
+              {reactions.length > 1 && (
+                <Text style={styles.reactionCount}>{reactions.length}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      );
+    };
+
+    const renderMessageContent = () => {
+      if (item.isRecalled) {
+        return (
+          <Text style={[styles.messageText, styles.recalledMessage]}>
+            Tin nhắn đã được thu hồi
+          </Text>
+        );
+      }
+
+      if (item.type === 'image' || 
+          (item.type === 'file' && 
+           item.metadata?.fileName && 
+           isImageFile(item.metadata.fileName, item.metadata.fileType, item.content))) {
+        return (
+          <TouchableOpacity 
+            onPress={onImagePress}
+            style={[styles.imageBubble, { width: '100%', borderRadius: 16 }]}
           >
-            {isImageMessage(item) ? (
-              <TouchableOpacity 
-                onPress={() => {
-                  if (item.content) {
-                    Linking.openURL(item.content);
-                  }
-                }}
-                style={[
-                  styles.imageContainer,
-                  isMe ? styles.myImageContainer : styles.theirImageContainer
-                ]}
-              >
-                <Image
-                  source={{ uri: item.content }}
-                  style={styles.messageImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            ) : isFileMessage(item.content) ? (
-              <View style={styles.fileContainer}>
-                <TouchableOpacity 
-                  style={[
-                    styles.fileContentContainer,
-                    { backgroundColor: isMe ? '#E3F2FD' : '#FFFFFF' },
-                    styles.elevation
-                  ]}
-                  onPress={() => {
-                    if (item.content) {
-                      Linking.openURL(item.content);
-                    }
-                  }}
-                >
-                  <View style={styles.fileIconWrapper}>
-                    <View style={[styles.fileIconContainer, { backgroundColor: '#1976D2' }]}>
-                      <Ionicons 
-                        name="document"
-                        size={22} 
-                        color="#FFFFFF"
-                      />
-                    </View>
-                  </View>
-                  <View style={styles.fileInfoContainer}>
-                    <Text style={styles.fileName} numberOfLines={1}>
-                      {item.metadata?.fileName || 'Unknown file'}
-                    </Text>
-                    <Text style={styles.fileType}>
-                      {item.metadata?.fileType?.toUpperCase() || 'Unknown type'}
-                    </Text>
-                  </View>
-                  <View style={styles.actionButtons}>
-                    <TouchableOpacity 
-                      style={[styles.actionButton, { backgroundColor: '#1976D2' }]}
-                      onPress={() => {
-                        if (item.content) {
-                          Linking.openURL(item.content);
-                        }
-                      }}
-                    >
-                      <Ionicons 
-                        name="eye-outline" 
-                        size={16} 
-                        color="#FFFFFF"
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
-                      onPress={() => {
-                        if (item.content) {
-                          Clipboard.setString(item.content);
-                        }
-                      }}
-                    >
-                      <Ionicons 
-                        name="copy-outline" 
-                        size={16} 
-                        color="#FFFFFF"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <Text style={[styles.messageText, !isMe && styles.theirMessageText]}>
-                {item.content}
+            <Image
+              source={{ uri: item.content }}
+              style={styles.messageImage}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
+        );
+      }
+      
+      if (item.type === 'file') {
+        const getFileIcon = () => {
+          const fileName = item.metadata?.fileName?.toLowerCase() || '';
+          const mimeType = item.metadata?.fileType?.toLowerCase() || '';
+
+          if (fileName.endsWith('.pdf') || mimeType.includes('pdf')) return 'document-text';
+          if (fileName.endsWith('.doc') || fileName.endsWith('.docx') || mimeType.includes('msword')) return 'document-text';
+          if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) return 'grid';
+          if (fileName.endsWith('.ppt') || fileName.endsWith('.pptx')) return 'easel';
+          if (mimeType.includes('video')) return 'videocam';
+          if (mimeType.includes('audio')) return 'musical-notes';
+          return 'document';
+        };
+
+        const getFileName = () => {
+          let fullName = '';
+          if (item.metadata?.fileName) {
+            fullName = item.metadata.fileName;
+          } else if (item.content) {
+            const urlParts = item.content.split('/');
+            fullName = urlParts[urlParts.length - 1];
+          } else {
+            return 'File';
+          }
+
+          const lastDotIndex = fullName.lastIndexOf('.');
+          if (lastDotIndex === -1) return fullName;
+
+          const name = fullName.slice(0, lastDotIndex);
+          const ext = fullName.slice(lastDotIndex + 1).toLowerCase();
+
+          if (name.length <= 8) return `${name}.${ext}`;
+          return `${name.slice(0, 8)}...${name.slice(-4)}.${ext}`;
+        };
+
+        const fileSize = item.metadata?.fileSize 
+          ? `${Math.round(item.metadata.fileSize / 1024)} KB` 
+          : '2.9 MB';
+
+        return (
+          <TouchableOpacity 
+            onPress={() => Linking.openURL(item.content)}
+            style={styles.fileMessageWrapper}
+          >
+            <View style={styles.fileIconContainer}>
+              <Ionicons 
+                name={getFileIcon()} 
+                size={20} 
+                color="#0068ff" 
+              />
+            </View>
+            <View style={styles.fileTextContainer}>
+              <Text style={styles.fileMessageName} numberOfLines={1}>
+                {getFileName()}
               </Text>
-            )}
-            <View style={styles.messageFooter}>
-              <Text style={[styles.messageTime, !isMe && styles.theirMessageTime]}>
-                {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: vi })}
+              <Text style={styles.fileMessageSize}>
+                {fileSize}
               </Text>
             </View>
+            <TouchableOpacity 
+              style={styles.downloadButton}
+              onPress={() => Linking.openURL(item.content)}
+            >
+              <Ionicons name="download-outline" size={14} color="#0068ff" />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        );
+      }
+      
+      return (
+        <Text style={[styles.messageText, !isCurrentUser && styles.theirMessageText]}>
+          {item.content}
+        </Text>
+      );
+    };
+
+    return (
+      <View style={[
+        styles.messageContainer,
+        isCurrentUser ? styles.myMessage : styles.theirMessage,
+        { position: 'relative', alignSelf: isCurrentUser ? 'flex-end' : 'flex-start' }
+      ]}>
+        {!isCurrentUser && (
+          <View style={styles.avatarContainer}>
+            <Avatar
+              rounded
+              source={{ uri: item.senderAvatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg' }}
+              size={32}
+              containerStyle={styles.avatar}
+            />
+          </View>
+        )}
+        <View style={[
+          styles.messageContentContainer,
+          isCurrentUser ? styles.myMessageContent : styles.theirMessageContent,
+          item.isRecalled && styles.recalledMessageContainer
+        ]}>
+          {!isCurrentUser && (
+            <Text style={styles.senderName}>
+              {item.senderName || 'Unknown'}
+            </Text>
+          )}
+          <TouchableOpacity 
+            onLongPress={onLongPress}
+            activeOpacity={0.7}
+            style={[
+              styles.messageBubble,
+              isCurrentUser ? styles.myBubble : styles.theirBubble,
+              item.isRecalled && styles.recalledMessageBubble
+            ]}
+          >
+            {renderMessageContent()}
+          </TouchableOpacity>
+          {renderReactions()}
+          <View style={styles.messageFooter}>
+            <Text style={[styles.messageTime, isCurrentUser ? styles.myTime : styles.theirTime]}>
+              {formatTimeAgo(item.createdAt)}
+            </Text>
           </View>
         </View>
-      </TouchableOpacity>
+      </View>
+    );
+  });
+
+  const renderMessage = React.useCallback(({ item }: { item: ExtendedGroupMessage }) => {
+    const handleLongPress = () => {
+      console.log('Message long pressed:', item);
+      setSelectedMessage(item);
+      setShowMessageActions(true);
+    };
+
+    const handleImagePress = () => {
+      if (item.type === 'image') {
+        Linking.openURL(item.content);
+      }
+    };
+
+    const handleFilePress = () => {
+      if (item.type === 'file' && item.metadata?.fileUrl) {
+        Linking.openURL(item.metadata.fileUrl);
+      }
+    };
+
+    return (
+      <MessageItem
+        key={item.messageId}
+        item={item}
+        onLongPress={handleLongPress}
+        onImagePress={handleImagePress}
+        onFilePress={handleFilePress}
+        onCopyPress={() => handleCopyText(item)}
+      />
+    );
+  }, []);
+
+  const keyExtractor = React.useCallback((item: ExtendedGroupMessage) => 
+    item.messageId, []);
+
+  const renderMessageActions = () => {
+    if (!selectedMessage) return null;
+    
+    const isCurrentUser = selectedMessage.senderEmail === currentUserEmail;
+    const timeDiff = new Date().getTime() - new Date(selectedMessage.createdAt).getTime();
+    const canRecall = timeDiff <= 2 * 60 * 1000; // 2 phút
+
+    return (
+      <View style={styles.messageActions}>
+        {/* Message Actions Section */}
+        {isCurrentUser && (
+          <View style={styles.messageActionsSection}>
+            <TouchableOpacity 
+              style={styles.messageActionButton}
+              onPress={() => {
+                setShowMessageActions(false);
+                handleCopyText(selectedMessage);
+              }}
+            >
+              <Ionicons name="copy-outline" size={24} color="#666" />
+              <Text style={styles.messageActionText}>Sao chép</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.messageActionButton}
+              onPress={() => {
+                setShowMessageActions(false);
+                setSelectedMessageForForward(selectedMessage);
+                setShowForwardModal(true);
+              }}
+            >
+              <Ionicons name="share-outline" size={24} color="#666" />
+              <Text style={styles.messageActionText}>Chuyển tiếp</Text>
+            </TouchableOpacity>
+
+            {canRecall && (
+              <TouchableOpacity 
+                style={styles.messageActionButton}
+                onPress={() => {
+                  setShowMessageActions(false);
+                  handleRecall(selectedMessage.messageId);
+                }}
+              >
+                <Ionicons name="refresh" size={24} color="#666" />
+                <Text style={styles.messageActionText}>Thu hồi</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity 
+              style={styles.messageActionButton}
+              onPress={() => {
+                setShowMessageActions(false);
+                handleDelete(selectedMessage.messageId);
+              }}
+            >
+              <Ionicons name="trash" size={24} color="#666" />
+              <Text style={styles.messageActionText}>Xóa</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
     );
   };
 
-  const renderMessageActions = () => {
-    if (!selectedMessageForActions) return null;
-
+  const renderReactionAndActionModal = () => {
     return (
       <Modal
         visible={showMessageActions}
@@ -962,122 +1611,89 @@ const ChatGroupScreen = () => {
           activeOpacity={1}
           onPress={() => setShowMessageActions(false)}
         >
-          <View style={styles.messageActionsMenu}>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => handleMessageAction(selectedMessageForActions, 'recall')}
-            >
-              <Ionicons name="refresh-outline" size={24} color="#0068ff" />
-              <Text style={styles.messageActionText}>Thu hồi</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => handleMessageAction(selectedMessageForActions, 'forward')}
-            >
-              <Ionicons name="share-outline" size={24} color="#0068ff" />
-              <Text style={styles.messageActionText}>Chuyển tiếp</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.messageActionButton}
-              onPress={() => handleMessageAction(selectedMessageForActions, 'copy')}
-            >
-              <Ionicons name="copy-outline" size={24} color="#0068ff" />
-              <Text style={styles.messageActionText}>Sao chép</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    );
-  };
-
-  const renderReactionAndActionModal = () => {
-    if (!selectedMessage) return null;
-
-    return (
-      <Modal
-        visible={showReactions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowReactions(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowReactions(false)}
-        >
-          <View style={styles.reactionAndActionContainer}>
-            {/* Reactions Section */}
-            <View style={styles.reactionSection}>
-              <Text style={styles.sectionTitle}>Reactions</Text>
-              <View style={styles.reactionMenu}>
-                {REACTIONS.map((reaction, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.reactionButton}
-                    onPress={() => {
-                      if (!selectedMessage) return;
-                      
-                      if (reaction.type === 'reaction') {
+          <View style={styles.modalContent}>
+            {selectedMessage && (
+              <View style={styles.messageActions}>
+                {/* Reactions Section */}
+                <View style={styles.reactionsSection}>
+                  {REACTIONS.map((reaction) => (
+                    <TouchableOpacity
+                      key={reaction.name}
+                      style={styles.reactionButton}
+                      onPress={() => {
                         handleReaction(selectedMessage.messageId, reaction.emoji);
-                      } else if (reaction.type === 'action') {
-                        if (reaction.name === 'copy') {
-                          handleCopyText(selectedMessage);
-                        } else if (reaction.name === 'forward') {
-                          setSelectedMessageForForward(selectedMessage);
-                          setShowForwardModal(true);
-                          setShowReactions(false);
-                        }
-                      }
-                    }}
-                  >
-                    <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+                        setShowMessageActions(false);
+                      }}
+                    >
+                      <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-            {/* Admin Actions Section */}
-            {isAdmin && (
-              <View style={styles.actionSection}>
-                <Text style={styles.sectionTitle}>Admin Actions</Text>
-                <View style={styles.adminActionsMenu}>
-                  <TouchableOpacity
-                    style={styles.adminActionButton}
+                {/* Message Actions Section */}
+                <View style={styles.messageActionsSection}>
+                  {/* Common actions for all messages */}
+                  <TouchableOpacity 
+                    style={styles.messageActionButton}
                     onPress={() => {
-                      if (selectedMessage) {
-                        handleRecall(selectedMessage.messageId);
-                        setShowReactions(false);
-                      }
+                      setShowMessageActions(false);
+                      handleCopyText(selectedMessage);
                     }}
                   >
-                    <Ionicons name="refresh-outline" size={24} color="#0068ff" />
-                    <Text style={styles.adminActionText}>Thu hồi tin nhắn</Text>
+                    <Ionicons name="copy-outline" size={24} color="#666" />
+                    <Text style={styles.messageActionText}>Sao chép</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.adminActionButton}
+
+                  <TouchableOpacity 
+                    style={styles.messageActionButton}
                     onPress={() => {
-                      if (selectedMessage) {
-                        setSelectedMessageForForward(selectedMessage);
-                        setShowForwardModal(true);
-                        setShowReactions(false);
-                      }
+                      setShowMessageActions(false);
+                      setSelectedMessageForForward(selectedMessage);
+                      setShowForwardModal(true);
                     }}
                   >
-                    <Ionicons name="share-outline" size={24} color="#0068ff" />
-                    <Text style={styles.adminActionText}>Chuyển tiếp</Text>
+                    <Ionicons name="share-outline" size={24} color="#666" />
+                    <Text style={styles.messageActionText}>Chuyển tiếp</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.adminActionButton}
-                    onPress={() => {
-                      if (selectedMessage) {
-                        handleCopyText(selectedMessage);
-                        setShowReactions(false);
-                      }
-                    }}
-                  >
-                    <Ionicons name="copy-outline" size={24} color="#0068ff" />
-                    <Text style={styles.adminActionText}>Sao chép</Text>
-                  </TouchableOpacity>
+
+                  {/* Actions only for own messages */}
+                  {selectedMessage.senderEmail === currentUserEmail && (
+                    <>
+                      {(() => {
+                        const messageTime = new Date(selectedMessage.createdAt).getTime();
+                        const currentTime = new Date().getTime();
+                        const timeDiff = currentTime - messageTime;
+                        const canRecall = timeDiff <= 2 * 60 * 1000; // 2 phút
+                        console.log('Message time:', messageTime);
+                        console.log('Current time:', currentTime);
+                        console.log('Time difference:', timeDiff);
+                        console.log('Can recall:', canRecall);
+                        return canRecall && (
+                          <TouchableOpacity 
+                            style={styles.messageActionButton}
+                            onPress={() => {
+                              setShowMessageActions(false);
+                              handleRecall(selectedMessage.messageId);
+                            }}
+                          >
+                            <Ionicons name="refresh" size={24} color="#666" />
+                            <Text style={styles.messageActionText}>Thu hồi</Text>
+                          </TouchableOpacity>
+                        );
+                      })()}
+
+                      <TouchableOpacity 
+                        style={styles.messageActionButton}
+                        onPress={() => {
+                          setShowMessageActions(false);
+                          handleDelete(selectedMessage.messageId);
+                        }}
+                      >
+                        <Ionicons name="trash" size={24} color="#666" />
+                        <Text style={styles.messageActionText}>Xóa</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </View>
               </View>
             )}
@@ -1086,110 +1702,62 @@ const ChatGroupScreen = () => {
       </Modal>
     );
   };
-  
-
-  const isFileMessage = (content: string) => {
-    return content.includes('uploads3cnm.s3.amazonaws.com') && (!selectedMessage || !isImageMessage(selectedMessage));
-  };
-
-  const isImageMessage = (message: ExtendedGroupMessage) => {
-    if (message.type === 'image') return true;
-    if (message.metadata?.fileType?.startsWith('image/')) return true;
-    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
-    const url = message.content.toLowerCase();
-    return imageExtensions.some(ext => url.endsWith(`.${ext}`));
-  };
 
   // Thêm thành viên vào nhóm
-  const handleAddMembers = async (emails: string[]) => {
+  const handleAddMembers = async () => {
     try {
-      console.log('Mời các email:', emails);
-      const response = await addGroupMembers(groupId, emails);
-      console.log('Phản hồi từ server:', response);
-      if (response.success) {
-        Alert.alert('Thành công', 'Đã thêm thành viên vào nhóm');
-        socketService.emit('groupMembersUpdated', { groupId });
-      } else {
-        Alert.alert('Thất bại', response.message || 'Không thể thêm thành viên');
+      console.log('Mời các thành viên:', selectedFriendsToAdd);
+      
+      // Lọc ra những thành viên chưa có trong nhóm
+      const newMembers = selectedFriendsToAdd.filter(email => !currentGroupMembers.includes(email));
+      
+      if (newMembers.length === 0) {
+        Alert.alert('Thông báo', 'Các thành viên đã được chọn đều đã có trong nhóm');
+        setShowAddMemberModal(false);
+        setSelectedFriendsToAdd([]);
+        return;
       }
-    } catch (error) {
+
+      // Chuyển đổi email thành ID từ friendsList
+      const memberIds = newMembers.map(email => {
+        const friend = friendsList.find(f => f.email === email);
+        if (!friend) {
+          throw new Error(`Không tìm thấy người dùng với email: ${email}`);
+        }
+        return friend.userId;
+      });
+
+      console.log('Chuyển đổi thành ID:', memberIds);
+
+      // Gọi API thêm thành viên
+      const response = await addGroupMembers(groupId, memberIds);
+      console.log('Server response:', response);
+
+      if (response.success) {
+        // Cập nhật số lượng thành viên
+        const membersResponse = await getGroupMembers(groupId);
+        if (membersResponse.success) {
+          setMemberCount(membersResponse.data.members.length);
+          // Cập nhật lại danh sách thành viên hiện tại
+          const memberEmails = membersResponse.data.members.map((member: any) => member.email);
+          setCurrentGroupMembers(memberEmails);
+          
+          // Chỉ hiển thị thông báo thành công nếu có thành viên mới được thêm vào
+          if (newMembers.length > 0) {
+            Alert.alert('Thành công', `Đã thêm ${newMembers.length} thành viên vào nhóm`);
+          }
+        }
+        
+        // Đóng modal và reset form
+        setShowAddMemberModal(false);
+        setSelectedFriendsToAdd([]);
+      } else {
+        throw new Error(response.message || 'Không thể thêm thành viên');
+      }
+    } catch (error: any) {
       console.error('Lỗi khi thêm thành viên:', error);
-      Alert.alert('Lỗi', 'Không thể thêm thành viên');
+      Alert.alert('Lỗi', error.message || 'Không thể thêm thành viên vào nhóm');
     }
-  };
-  
-  // Xóa thành viên khỏi nhóm
-  const handleRemoveMember = async (email: string) => {
-    try {
-      const response = await removeGroupMember(groupId, email);
-      if (response.success) {
-        Alert.alert('Thành công', 'Đã xóa thành viên khỏi nhóm');
-        socketService.emit('groupMembersUpdated', { groupId });
-      } else {
-        Alert.alert('Thất bại', response.message || 'Không thể xóa thành viên');
-      }
-    } catch (error) {
-      console.error('Lỗi khi xóa thành viên:', error);
-      Alert.alert('Lỗi', 'Không thể xóa thành viên');
-    }
-  };
-
-  const setupSocketListeners = () => {
-    // Listen for new messages
-    const handleNewMessage = (data: { groupId: string, message: any }) => {
-      if (data.groupId === groupId) {
-        const newMessage: ExtendedGroupMessage = {
-          ...data.message,
-          groupId,
-          isCurrentUser: data.message.senderEmail === currentUserEmail
-        };
-        setMessages(prev => [...prev, newMessage]);
-      }
-    };
-
-    // Listen for group name changes
-    const handleNameChange = (data: { groupId: string, newName: string }) => {
-      if (data.groupId === groupId) {
-        navigation.setParams({ groupName: data.newName });
-      }
-    };
-
-    // Listen for group avatar changes
-    const handleAvatarChange = (data: { groupId: string, newAvatar: string }) => {
-      if (data.groupId === groupId) {
-        navigation.setParams({ avatar: data.newAvatar });
-      }
-    };
-
-    // Listen for member updates
-    const handleMembersUpdate = (data: { groupId: string, newMembers: any[] }) => {
-      if (data.groupId === groupId) {
-        setMemberCount(data.newMembers.length);
-      }
-    };
-    
-    
-    
-
-    // Subscribe to socket events
-    socketService.on('newGroupMessage', handleNewMessage);
-    socketService.on('groupNameChanged', handleNameChange);
-    socketService.on('groupAvatarChanged', handleAvatarChange);
-    socketService.on('groupMembersUpdated', handleMembersUpdate);
-
-    // Join the group room
-    socketService.joinGroup(groupId);
-
-    socketService.emit('groupMembersUpdated', { groupId });
-
-
-    return () => {
-      socketService.off('newGroupMessage', handleNewMessage);
-      socketService.off('groupNameChanged', handleNameChange);
-      socketService.off('groupAvatarChanged', handleAvatarChange);
-      socketService.off('groupMembersUpdated', handleMembersUpdate);
-      socketService.leaveGroup(groupId);
-    };
   };
 
   return (
@@ -1256,15 +1824,26 @@ const ChatGroupScreen = () => {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item) => item.messageId}
-          style={styles.flatList}
-          contentContainerStyle={styles.messagesList}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          maintainVisibleContentPosition={{
-            minIndexForVisible: 0,
-            autoscrollToTopThreshold: 10
+          keyExtractor={keyExtractor}
+          contentContainerStyle={styles.messagesContainer}
+          onContentSizeChange={() => {
+            if (!loading) {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }
           }}
+          onLayout={() => {
+            if (!loading) {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }
+          }}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={5}
+          windowSize={5}
+          initialNumToRender={10}
+          updateCellsBatchingPeriod={50}
+          inverted={false}
+          showsVerticalScrollIndicator={false}
+          style={styles.flatList}
         />
 
         {/* Emoji Picker */}
@@ -1276,9 +1855,9 @@ const ChatGroupScreen = () => {
               contentContainerStyle={styles.emojiScrollContainer}
             >
               <View style={styles.emojiGrid}>
-                {EMOJIS.map((emoji, index) => (
+                {EMOJIS.map((emoji) => (
                   <TouchableOpacity
-                    key={index}
+                    key={emoji}
                     style={styles.emojiButton}
                     onPress={() => handleEmojiPress(emoji)}
                   >
@@ -1293,16 +1872,6 @@ const ChatGroupScreen = () => {
         {/* Bottom Input Bar */}
         <View style={styles.inputContainer}>
           <View style={styles.inputWrapper}>
-            <TouchableOpacity 
-              style={styles.inputIcon}
-              onPress={() => setShowEmojis(!showEmojis)}
-            >
-              <Ionicons 
-                name={showEmojis ? "close-outline" : "happy-outline"} 
-                size={24} 
-                color="#666" 
-              />
-            </TouchableOpacity>
             <TextInput
               style={styles.input}
               placeholder="Tin nhắn"
@@ -1312,6 +1881,16 @@ const ChatGroupScreen = () => {
               multiline
             />
             <View style={styles.inputRightIcons}>
+              <TouchableOpacity 
+                style={styles.inputIcon}
+                onPress={() => setShowEmojis(!showEmojis)}
+              >
+                <Ionicons 
+                  name={showEmojis ? "close-outline" : "happy-outline"} 
+                  size={24} 
+                  color="#666" 
+                />
+              </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.inputIcon}
                 onPress={handleImagePick}
@@ -1328,10 +1907,10 @@ const ChatGroupScreen = () => {
               </TouchableOpacity>
               {newMessage.trim() && (
                 <TouchableOpacity 
-                  style={styles.sendButton}
+                  style={[styles.inputIcon, styles.sendButton]}
                   onPress={handleSendMessage}
                 >
-                  <Ionicons name="send" size={24} color="#fff" />
+                  <Ionicons name="send" size={24} color="#0068ff" />
                 </TouchableOpacity>
               )}
             </View>
@@ -1339,58 +1918,76 @@ const ChatGroupScreen = () => {
         </View>
       </KeyboardAvoidingView>
 
-      {renderMessageActions()}
       {renderReactionAndActionModal()}
       {renderForwardModal()}
       {showAddMemberModal && (
         <Modal visible transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.forwardModal}>
-              <Text style={styles.forwardModalTitle}>Thêm thành viên</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.forwardModalTitle}>Thêm thành viên</Text>
+                <TouchableOpacity 
+                  style={styles.closeButton}
+                  onPress={() => {
+                    setShowAddMemberModal(false);
+                    setSelectedFriendsToAdd([]);
+                  }}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
               <FlatList
                 data={friendsList}
                 keyExtractor={item => item.email}
                 renderItem={({ item }) => {
                   const isSelected = selectedFriendsToAdd.includes(item.email);
+                  const isMember = currentGroupMembers.includes(item.email);
+                  
                   return (
                     <TouchableOpacity
-                      style={styles.forwardItem}
+                      style={[
+                        styles.forwardItem,
+                        isMember && styles.disabledItem
+                      ]}
                       onPress={() => {
-                        if (isSelected) {
-                          setSelectedFriendsToAdd(prev => prev.filter(e => e !== item.email));
-                        } else {
-                          setSelectedFriendsToAdd(prev => [...prev, item.email]);
+                        if (!isMember) {
+                          if (isSelected) {
+                            setSelectedFriendsToAdd(prev => prev.filter(email => email !== item.email));
+                          } else {
+                            setSelectedFriendsToAdd(prev => [...prev, item.email]);
+                          }
                         }
                       }}
+                      disabled={isMember}
                     >
                       <Avatar rounded source={{ uri: item.avatar }} size={40} />
                       <View style={styles.forwardItemInfo}>
                         <Text style={styles.forwardItemName}>{item.fullName}</Text>
                         <Text style={styles.forwardItemSubtext}>{item.email}</Text>
+                        {isMember && (
+                          <Text style={styles.memberText}>Đã là thành viên</Text>
+                        )}
                       </View>
-                      <Ionicons
-                        name={isSelected ? "checkbox" : "square-outline"}
-                        size={24}
-                        color="#0068ff"
-                      />
+                      {!isMember && (
+                        <Ionicons
+                          name={isSelected ? "checkbox" : "square-outline"}
+                          size={24}
+                          color="#0068ff"
+                        />
+                      )}
                     </TouchableOpacity>
                   );
                 }}
               />
-              <TouchableOpacity
-                style={styles.sendButton}
-                onPress={async () => {
-                  if (selectedFriendsToAdd.length > 0) {
-                    await handleAddMembers(selectedFriendsToAdd);
-                    setSelectedFriendsToAdd([]);
-                    setShowAddMemberModal(false);
-                  } else {
-                    Alert.alert("Thông báo", "Vui lòng chọn ít nhất 1 người.");
-                  }
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Thêm thành viên</Text>
-              </TouchableOpacity>
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.addMemberButton, selectedFriendsToAdd.length === 0 && styles.disabledButton]}
+                  onPress={handleAddMembers}
+                  disabled={selectedFriendsToAdd.length === 0}
+                >
+                  <Text style={styles.addMemberButtonText}>Thêm thành viên</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -1448,70 +2045,165 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  flatList: {
-    flex: 1,
-  },
-  messagesList: {
-    padding: 10,
-    paddingBottom: 20,
+  messagesContainer: {
+    paddingVertical: 16,
   },
   messageContainer: {
     flexDirection: 'row',
-    marginVertical: 5,
-    alignItems: 'flex-end',
-    width: '100%',
+    marginVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'flex-start',
   },
   myMessage: {
-    flexDirection: 'row-reverse',
-    alignSelf: 'flex-end',
-    paddingLeft: '15%',
+    justifyContent: 'flex-end',
+    marginLeft: 50,
   },
   theirMessage: {
+    justifyContent: 'flex-start',
+    marginRight: 50,
+  },
+  avatarContainer: {
+    width: 32,
+    marginRight: 8,
     alignSelf: 'flex-start',
-    paddingRight: '15%',
   },
   avatar: {
-    marginHorizontal: 8,
+    backgroundColor: '#E4E6EB',
+  },
+  messageContentContainer: {
+    maxWidth: '80%',
+    borderRadius: 12,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.22,
+    shadowRadius: 2.22,
+    elevation: 3,
+  },
+  myMessageContent: {
+    alignItems: 'flex-end',
+    backgroundColor: '#0084ff',
+    marginLeft: 'auto',
+  },
+  theirMessageContent: {
+    alignItems: 'flex-start',
+    backgroundColor: '#E4E6EB',
+    marginRight: 'auto',
+  },
+  senderName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E88E5',
+    marginBottom: 4,
+    paddingHorizontal: 4,
   },
   messageBubble: {
-    maxWidth: '100%',
-    padding: 12,
-    borderRadius: 20,
+    width: '100%',
+    padding: 4,
+    overflow: 'visible',
+    minHeight: 40,
+    position: 'relative',
+    paddingBottom: 20,
   },
   myBubble: {
-    backgroundColor: '#0068ff',
-    borderBottomRightRadius: 4,
-    marginLeft: 8,
+    alignItems: 'flex-end',
   },
   theirBubble: {
-    backgroundColor: '#f0f0f0',
-    borderBottomLeftRadius: 4,
-    marginRight: 8,
-  },
-  imageBubble: {
-    padding: 3,
-    backgroundColor: 'transparent',
+    alignItems: 'flex-start',
   },
   messageText: {
-    fontSize: 16,
-    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#fff',
   },
   theirMessageText: {
-    color: '#000000',
-  },
-  messageFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginTop: 4,
+    color: '#000',
   },
   messageTime: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginRight: 4,
+    fontSize: 11,
+    color: '#65676B',
   },
-  theirMessageTime: {
-    color: 'rgba(0, 0, 0, 0.5)',
+  myTime: {
+    color: '#fff',
+  },
+  theirTime: {
+    color: '#65676B',
+  },
+  imageContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
+  messageImage: {
+    width: 240,
+    height: 240,
+    borderRadius: 16,
+  },
+  fileContainer: {
+    width: 280,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  myFileContainer: {
+    backgroundColor: '#fff',
+  },
+  theirFileContainer: {
+    backgroundColor: '#fff',
+  },
+  fileContentContainer: {
+    padding: 8,
+    paddingRight: 12,
+  },
+  fileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  fileIconWrapper: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    zIndex: 2,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 12,
+    padding: 2,
+  },
+  fileInfoContainer: {
+    flex: 1,
+    width: 220,
+  },
+  fileName: {
+    fontSize: 14,
+    color: '#000000',
+    marginBottom: 2,
+  },
+  fileSize: {
+    fontSize: 12,
+    color: '#666666',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    marginLeft: 8,
+  },
+  actionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+    backgroundColor: '#0084ff',
+  },
+  elevation: {
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
   inputContainer: {
     backgroundColor: '#fff',
@@ -1541,7 +2233,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sendButton: {
-    backgroundColor: '#0068ff',
+    backgroundColor: '#fff',
     borderRadius: 20,
     width: 40,
     height: 40,
@@ -1576,81 +2268,11 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: '#000',
   },
-  imageContainer: {
-    borderRadius: 10,
-    overflow: 'hidden',
-    maxWidth: '100%',
-  },
   myImageContainer: {
     alignSelf: 'flex-end',
   },
   theirImageContainer: {
     alignSelf: 'flex-start',
-  },
-  messageImage: {
-    width: 200,
-    height: 200,
-    borderRadius: 10,
-  },
-  fileContainer: {
-    maxWidth: '85%',
-    minWidth: 220,
-    marginVertical: 2,
-  },
-  fileContentContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 12,
-  },
-  elevation: {
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  fileIconWrapper: {
-    marginRight: 12,
-  },
-  fileIconContainer: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fileInfoContainer: {
-    flex: 1,
-    marginRight: 8,
-  },
-  fileType: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 2,
-    letterSpacing: 0.5,
-  },
-  fileName: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,
@@ -1689,8 +2311,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   reactionEmoji: {
-    fontSize: 20,
-    marginHorizontal: 2,
+    fontSize: 14,
+    marginHorizontal: 1,
   },
   adminActionsMenu: {
     backgroundColor: '#f8f8f8',
@@ -1770,6 +2392,190 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 2,
+  },
+  messageActions: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    width: '90%',
+    maxWidth: 300,
+  },
+  reactionsSection: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  messageActionsSection: {
+    marginTop: 10,
+  },
+  actionText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  reactionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    marginTop: 2,
+    marginBottom: 2,
+    maxWidth: '100%',
+    alignItems: 'center',
+  },
+  reactionsRight: {
+    justifyContent: 'flex-end',
+  },
+  reactionsLeft: {
+    justifyContent: 'flex-start',
+  },
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    marginRight: 2,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  reactionEmojiText: {
+    fontSize: 12,
+    marginRight: 1,
+  },
+  reactionCount: {
+    fontSize: 10,
+    color: '#666',
+    marginLeft: 1,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 15,
+    margin: 20,
+    maxWidth: '90%',
+  },
+  imageBubble: {
+    maxWidth: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  flatList: {
+    flex: 1,
+  },
+  fileMessageWrapper: {
+    backgroundColor: '#F5F5F5',
+    padding: 6,
+    minWidth: 180,
+    maxWidth: 240,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    margin: 4,
+  },
+  fileIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#E3F2FD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+    flexShrink: 0,
+  },
+  fileTextContainer: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 4,
+  },
+  fileMessageName: {
+    fontSize: 12,
+    color: '#000000',
+    marginBottom: 1,
+  },
+  fileMessageSize: {
+    fontSize: 10,
+    color: '#666666',
+  },
+  downloadButton: {
+    padding: 3,
+    borderRadius: 4,
+    backgroundColor: '#E3F2FD',
+    flexShrink: 0,
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 2,
+    paddingHorizontal: 4,
+  },
+  heartIconAbsoluteOuter: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    zIndex: 1000,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 12,
+    padding: 4,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  modalFooter: {
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  addMemberButton: {
+    backgroundColor: '#0068ff',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  disabledButton: {
+    backgroundColor: '#cccccc',
+  },
+  addMemberButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  disabledItem: {
+    opacity: 0.6,
+    backgroundColor: '#f5f5f5',
+  },
+  memberText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  recalledMessageContainer: {
+    opacity: 0.9,
+  },
+  recalledMessageBubble: {
+    backgroundColor: '#f5f5f5',
+  },
+  recalledMessage: {
+    color: '#999',
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });
 

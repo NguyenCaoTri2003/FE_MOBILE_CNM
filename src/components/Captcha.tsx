@@ -13,7 +13,7 @@ const Captcha: React.FC<CaptchaProps> = ({ value, onChange, onCaptchaChange }) =
   const [captchaCode, setCaptchaCode] = useState('');
 
   const generateCaptcha = () => {
-    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    const chars = '0123456789ABCDEFGHJKMNOPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
     let captcha = '';
     for (let i = 0; i < 6; i++) {
       captcha += chars.charAt(Math.floor(Math.random() * chars.length));

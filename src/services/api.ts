@@ -245,6 +245,7 @@ export interface Friend {
   email: string;
   fullName: string;
   avatar: string;
+  userId: string;
   phoneNumber?: string;
   lastMessage?: {
     content: string;
@@ -484,10 +485,11 @@ export const unfriend = async (friendEmail: string) => {
 
 // Group Interfaces
 export interface GroupMember {
+  userId: string;
   email: string;
   fullName: string;
   avatar: string;
-  role: 'admin' | 'member';
+  role: 'admin' | 'deputy' | 'member';
   joinedAt: string;
 }
 
@@ -583,11 +585,11 @@ export const deleteGroup = async (groupId: string): Promise<void> => {
 // Thêm thành viên vào nhóm
 export const addGroupMembers = async (
   groupId: string,
-  memberEmails: string[]
+  memberIds: string[]
 ): Promise<GroupResponse> => {
   try {
     const response = await api.post(`/groups/${groupId}/members`, {
-      memberEmails
+      memberIds
     });
     return response.data;
   } catch (error) {
@@ -601,7 +603,15 @@ export const removeGroupMember = async (
   memberEmail: string
 ): Promise<GroupResponse> => {
   try {
-    const response = await api.delete(`/groups/${groupId}/members/${memberEmail}`);
+    // Lấy danh sách thành viên để tìm userId
+    const membersResponse = await getGroupMembers(groupId);
+    const member = membersResponse.data.members.find(m => m.email === memberEmail);
+    
+    if (!member) {
+      throw new Error('Không tìm thấy thành viên');
+    }
+    
+    const response = await api.delete(`/groups/${groupId}/members/${member.userId}`);
     return response.data;
   } catch (error) {
     throw error;
@@ -611,11 +621,20 @@ export const removeGroupMember = async (
 export const updateMemberRole = async (
   groupId: string,
   memberEmail: string,
-  role: 'admin' | 'member'
+  role: 'admin' | 'deputy' | 'member'
 ): Promise<GroupResponse> => {
   try {
-    const response = await api.put(`/groups/${groupId}/members/${memberEmail}/role`, {
-      role
+    // Lấy danh sách thành viên để tìm userId
+    const membersResponse = await getGroupMembers(groupId);
+    const member = membersResponse.data.members.find(m => m.email === memberEmail);
+    
+    if (!member) {
+      throw new Error('Không tìm thấy thành viên');
+    }
+
+    // Sử dụng endpoint /groups/{groupId}/members/{memberId}/role
+    const response = await api.put(`/groups/${groupId}/members/${member.userId}/role`, {
+      role: role
     });
     return response.data;
   } catch (error) {
@@ -634,6 +653,7 @@ export const leaveGroup = async (groupId: string): Promise<void> => {
 // Group Message Interfaces
 export interface GroupMessage extends Message {
   groupId: string;
+  deletedFor?: string[];
 }
 
 export interface GroupMessagesResponse {
@@ -752,10 +772,16 @@ export const getGroupMembers = async (groupId: string): Promise<{ success: boole
   }
 };
 
-export const forwardGroupMessage = async (groupId: string, messageId: string, targetGroupId: string): Promise<Message> => {
+export const forwardGroupMessage = async (
+  sourceGroupId: string, 
+  messageId: string, 
+  targetGroupId?: string,
+  targetEmail?: string
+): Promise<{success: boolean; message?: string; data?: Message}> => {
   try {
-    const response = await api.post(`/groups/${groupId}/messages/${messageId}/forward`, {
-      targetGroupId
+    const response = await api.post(`/groups/${sourceGroupId}/messages/${messageId}/forward`, {
+      targetGroupId,
+      targetEmail
     });
     return response.data;
   } catch (error: any) {

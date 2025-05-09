@@ -70,7 +70,12 @@ const CreateGroupScreen = () => {
 
   const handleCreateGroup = async () => {
     if (selectedFriends.size < 2) {
-      Alert.alert('Lỗi', 'Vui lòng chọn ít nhất 2 thành viên');
+      Alert.alert('Lỗi', 'Vui lòng chọn ít nhất 2 thành viên khác');
+      return;
+    }
+
+    if (!groupName.trim()) {
+      Alert.alert('Lỗi', 'Vui lòng nhập tên nhóm');
       return;
     }
 
@@ -103,7 +108,10 @@ const CreateGroupScreen = () => {
 
       if (response.success) {
         // Emit socket event for new group
-        socketService.emitCreateGroup(groupName, Array.from(selectedFriends));
+        socketService.emit('createGroup', {
+          name: groupName,
+          members: Array.from(selectedFriends)
+        });
         // Navigate back to contacts screen
         navigation.navigate('Contacts' as never);
       } else {

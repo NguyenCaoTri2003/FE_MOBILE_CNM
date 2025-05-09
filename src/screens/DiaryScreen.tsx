@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, TextInput, SafeAreaView, StatusBar, Image } from 'react-native';
 import { Text, Avatar, Button } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
@@ -6,6 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Ionicons, MaterialIcons, FontAwesome, Feather } from '@expo/vector-icons';
 import { getProfile } from '../services/api';
+import { useFocusEffect } from '@react-navigation/native';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -20,14 +21,12 @@ const DiaryScreen = () => {
   const [activeTab, setActiveTab] = useState('diary');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+  useFocusEffect(
+    useCallback(() => {
       setActiveTab('diary');
       loadUserProfile();
-    });
-
-    return unsubscribe;
-  }, [navigation]);
+    }, [])
+  );
 
   const loadUserProfile = async () => {
     try {

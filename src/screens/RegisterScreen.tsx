@@ -205,9 +205,14 @@ const RegisterScreen = () => {
         keyboardType="email-address"
         leftIcon={<MaterialIcons name="email" size={24} color="#595959" />}
         containerStyle={styles.inputContainer}
-        inputStyle={styles.input}
+        inputStyle={[styles.input, { color: '#000' }]}
         errorMessage={emailError}
         errorStyle={styles.errorText}
+        autoFocus={true}
+        selectionColor="#0068ff"
+        caretHidden={false}
+        placeholderTextColor="#999"
+        cursorColor="#0068ff"
       />
 
       <Captcha
@@ -251,9 +256,13 @@ const RegisterScreen = () => {
         maxLength={6}
         leftIcon={<MaterialIcons name="confirmation-number" size={24} color="#595959" />}
         containerStyle={styles.inputContainer}
-        inputStyle={styles.input}
+        inputStyle={[styles.input, { color: '#000' }]}
         errorMessage={verificationError}
         errorStyle={styles.errorText}
+        selectionColor="#0068ff"
+        caretHidden={false}
+        placeholderTextColor="#999"
+        cursorColor="#0068ff"
       />
 
       <Input
@@ -262,8 +271,12 @@ const RegisterScreen = () => {
         onChangeText={setName}
         leftIcon={<MaterialIcons name="person" size={24} color="#595959" />}
         containerStyle={styles.inputContainer}
-        inputStyle={styles.input}
+        inputStyle={[styles.input, { color: '#000' }]}
         errorStyle={styles.errorText}
+        selectionColor="#0068ff"
+        caretHidden={false}
+        placeholderTextColor="#999"
+        cursorColor="#0068ff"
       />
 
       <Input
@@ -279,9 +292,13 @@ const RegisterScreen = () => {
         maxLength={9}
         leftIcon={<MaterialIcons name="phone" size={24} color="#595959" />}
         containerStyle={styles.inputContainer}
-        inputStyle={styles.input}
+        inputStyle={[styles.input, { color: '#000' }]}
         errorMessage={phoneError}
         errorStyle={styles.errorText}
+        selectionColor="#0068ff"
+        caretHidden={false}
+        placeholderTextColor="#999"
+        cursorColor="#0068ff"
       />
 
       <Input
@@ -303,9 +320,13 @@ const RegisterScreen = () => {
           </TouchableOpacity>
         }
         containerStyle={styles.inputContainer}
-        inputStyle={styles.input}
+        inputStyle={[styles.input, { color: '#000' }]}
         errorMessage={passwordError}
         errorStyle={styles.errorText}
+        selectionColor="#0068ff"
+        caretHidden={false}
+        placeholderTextColor="#999"
+        cursorColor="#0068ff"
       />
 
       <Input
@@ -327,9 +348,13 @@ const RegisterScreen = () => {
           </TouchableOpacity>
         }
         containerStyle={styles.inputContainer}
-        inputStyle={styles.input}
+        inputStyle={[styles.input, { color: '#000' }]}
         errorMessage={confirmPasswordError}
         errorStyle={styles.errorText}
+        selectionColor="#0068ff"
+        caretHidden={false}
+        placeholderTextColor="#999"
+        cursorColor="#0068ff"
       />
 
       <Button
@@ -371,11 +396,13 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
+    justifyContent: 'center',
   },
   container: {
     flex: 1,
     padding: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    justifyContent: 'center',
   },
   header: {
     alignItems: 'center',
@@ -401,6 +428,8 @@ const styles = StyleSheet.create({
   input: {
     fontSize: 16,
     color: '#333',
+    height: 40,
+    paddingVertical: 0,
   },
   errorText: {
     margin: 0,
