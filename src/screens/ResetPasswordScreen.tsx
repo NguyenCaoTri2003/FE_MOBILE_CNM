@@ -13,6 +13,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { resetPassword } from '../services/api';
 import { RootStackParamList } from '../types/navigation';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = StackNavigationProp<RootStackParamList>;
 type ResetPasswordRouteProp = NativeRouteProp<RootStackParamList, 'ResetPassword'>;
@@ -108,88 +109,90 @@ const ResetPasswordScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Zalo</Text>
-        <Text style={styles.subtitle}>Đặt lại mật khẩu</Text>
-      </View>
-
-      <View style={styles.form}>
-        {(codeError || passwordError || confirmPasswordError) && (
-          <View style={styles.errorContainer}>
-            {codeError && <Text style={styles.errorText}>{codeError}</Text>}
-            {passwordError && <Text style={styles.errorText}>{passwordError}</Text>}
-            {confirmPasswordError && <Text style={styles.errorText}>{confirmPasswordError}</Text>}
-          </View>
-        )}
-
-        <View style={styles.inputContainer}>
-          <MaterialIcons name="email" size={24} color="#0068ff" style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            value={email}
-            editable={false}
-          />
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Zalo</Text>
+          <Text style={styles.subtitle}>Đặt lại mật khẩu</Text>
         </View>
 
-        <View style={styles.inputContainer}>
-          <MaterialIcons name="vpn-key" size={24} color="#0068ff" style={styles.icon} />
-          <TextInput
-            ref={codeInputRef}
-            style={styles.input}
-            placeholder="Mã xác nhận"
-            value={code}
-            onChangeText={setCode}
-            keyboardType="number-pad"
-            maxLength={6}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <MaterialIcons name="lock" size={24} color="#0068ff" style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Mật khẩu mới"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <MaterialIcons name="lock" size={24} color="#0068ff" style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Xác nhận mật khẩu"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <TouchableOpacity
-          style={styles.button}
-          onPress={handleResetPassword}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Đặt lại mật khẩu</Text>
+        <View style={styles.form}>
+          {(codeError || passwordError || confirmPasswordError) && (
+            <View style={styles.errorContainer}>
+              {codeError && <Text style={styles.errorText}>{codeError}</Text>}
+              {passwordError && <Text style={styles.errorText}>{passwordError}</Text>}
+              {confirmPasswordError && <Text style={styles.errorText}>{confirmPasswordError}</Text>}
+            </View>
           )}
-        </TouchableOpacity>
 
-        <View style={styles.footer}>
-          <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-            <Text style={styles.footerText}>Gửi lại mã xác nhận</Text>
+          <View style={styles.inputContainer}>
+            <MaterialIcons name="email" size={24} color="#0068ff" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              value={email}
+              editable={false}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <MaterialIcons name="vpn-key" size={24} color="#0068ff" style={styles.icon} />
+            <TextInput
+              ref={codeInputRef}
+              style={styles.input}
+              placeholder="Mã xác nhận"
+              value={code}
+              onChangeText={setCode}
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <MaterialIcons name="lock" size={24} color="#0068ff" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Mật khẩu mới"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <MaterialIcons name="lock" size={24} color="#0068ff" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Xác nhận mật khẩu"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+            />
+          </View>
+
+          <TouchableOpacity
+            style={styles.button}
+            onPress={handleResetPassword}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Đặt lại mật khẩu</Text>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.footerText}>Quay lại đăng nhập</Text>
-          </TouchableOpacity>
+
+          <View style={styles.footer}>
+            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+              <Text style={styles.footerText}>Gửi lại mã xác nhận</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.footerText}>Quay lại đăng nhập</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 

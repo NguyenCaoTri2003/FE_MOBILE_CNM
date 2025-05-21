@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal, ActivityIndicator } from 'react-native';
 import { Text, Avatar } from '@rneui/themed';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import * as Clipboard from 'expo-clipboard';
 import { jwtDecode } from 'jwt-decode';
 import { io } from 'socket.io-client';
 import { API_BASE_URL } from '@env';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -168,7 +169,7 @@ const ChatGroupScreen = () => {
   const [friendsList, setFriendsList] = useState<Friend[]>([]);
   const [lastMessageId, setLastMessageId] = useState<string>('');
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const pollingTimeoutRef = useRef<NodeJS.Timeout>();
+  const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messageSet = useRef<Set<string>>(new Set());
   // Thêm state để lưu danh sách thành viên hiện tại của nhóm
   const [currentGroupMembers, setCurrentGroupMembers] = useState<string[]>([]);
@@ -1761,7 +1762,7 @@ const ChatGroupScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
       
       {/* Header */}

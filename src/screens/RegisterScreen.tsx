@@ -7,6 +7,7 @@ import { registerSendVerification, registerVerify } from '../services/api';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import Captcha from '../components/Captcha';
 import { MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -369,24 +370,26 @@ const RegisterScreen = () => {
   );
 
   return (
-    <ImageBackground
-      source={{ uri: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743940527/p8t4hgpjuthf19sbin88.png' }}
-      style={styles.background}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <Text h3 style={styles.title}>Zalo</Text>
-            <Text style={styles.subtitle}>
-              Đăng ký tài khoản Zalo{'\n'}
-              để kết nối với ứng dụng Zalo Mobile
-            </Text>
-          </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
+      <ImageBackground
+        source={{ uri: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743940527/p8t4hgpjuthf19sbin88.png' }}
+        style={styles.background}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <View style={styles.container}>
+            <View style={styles.header}>
+              <Text h3 style={styles.title}>Zalo</Text>
+              <Text style={styles.subtitle}>
+                Đăng ký tài khoản Zalo{'\n'}
+                để kết nối với ứng dụng Zalo Mobile
+              </Text>
+            </View>
 
-          {currentStep === 0 ? renderStep1() : renderStep2()}
-        </View>
-      </ScrollView>
-    </ImageBackground>
+            {currentStep === 0 ? renderStep1() : renderStep2()}
+          </View>
+        </ScrollView>
+      </ImageBackground>
+    </SafeAreaView>
   );
 };
 

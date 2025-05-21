@@ -36,10 +36,17 @@ class SocketServiceImpl implements SocketService {
       auth: {
         token
       },
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
+      upgrade: true,
+      rememberUpgrade: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      path: '/socket.io/',
+      forceNew: false,
+      multiplex: true
     });
 
     this.socket.on('connect', () => {
@@ -50,8 +57,12 @@ class SocketServiceImpl implements SocketService {
       console.error('Socket connection error:', error);
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+    this.socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      // Only attempt to reconnect if the disconnection was not initiated by the client
+      if (reason === 'io server disconnect') {
+        this.socket?.connect();
+      }
     });
 
     this.socket.on('error', (error) => {

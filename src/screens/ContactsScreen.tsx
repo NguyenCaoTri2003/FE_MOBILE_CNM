@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, SafeAreaView, StatusBar, ScrollView, ActivityIndicator, Alert, Modal, Image } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, TextInput, StatusBar, ScrollView, ActivityIndicator, Alert, Modal, Image } from 'react-native';
 import { Text, Avatar, Tab, TabView } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,6 +9,7 @@ import { searchUsers, sendFriendRequest, getFriendRequests, respondToFriendReque
 import type { FriendRequest as BaseFriendRequest, Group, GroupMember } from '../services/api';
 import { socketService } from '../services/socket';
 import { useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Add type definitions at the top of the file
 declare global {
@@ -828,7 +829,7 @@ const ContactsScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
       
       {/* Header */}
@@ -867,7 +868,7 @@ const ContactsScreen = () => {
       </View>
 
       {/* Main Content */}
-      <View style={styles.mainContent}>
+      <View style={{ flex: 1 }}>
         {showSearchResults ? (
           renderSearchResults()
         ) : (

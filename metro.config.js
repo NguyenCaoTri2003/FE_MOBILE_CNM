@@ -1,10 +1,10 @@
-const { getDefaultConfig } = require('expo/metro-config');
+// Learn more https://docs.expo.io/guides/customizing-metro
+const { getDefaultConfig } = require('@expo/metro-config');
 
-const config = getDefaultConfig(__dirname);
+const defaultConfig = getDefaultConfig(__dirname);
 
-// Thêm cấu hình cho resolver
-config.resolver.assetExts.push(
-  // Thêm các extension file tĩnh
+// Add any custom config here
+defaultConfig.resolver.assetExts.push(
   'db',
   'mp3',
   'ttf',
@@ -13,4 +13,4 @@ config.resolver.assetExts.push(
   'jpg'
 );
 
-module.exports = config; 
+module.exports = defaultConfig; 

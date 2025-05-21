@@ -14,6 +14,7 @@ import { Input, Button } from '@rneui/themed';
 import { forgotPassword } from '../services/api';
 import Captcha from '../components/Captcha';
 import { RootStackParamList } from '../types/navigation';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = StackNavigationProp<RootStackParamList>;
 
@@ -88,60 +89,62 @@ const ForgotPasswordScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Zalo</Text>
-        <Text style={styles.subtitle}>Khôi phục mật khẩu</Text>
-      </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Zalo</Text>
+          <Text style={styles.subtitle}>Khôi phục mật khẩu</Text>
+        </View>
 
-      <View style={styles.form}>
-        {(emailError || captchaError) && (
-          <View style={styles.errorContainer}>
-            {emailError && <Text style={styles.errorText}>{emailError}</Text>}
-            {captchaError && <Text style={styles.errorText}>{captchaError}</Text>}
+        <View style={styles.form}>
+          {(emailError || captchaError) && (
+            <View style={styles.errorContainer}>
+              {emailError && <Text style={styles.errorText}>{emailError}</Text>}
+              {captchaError && <Text style={styles.errorText}>{captchaError}</Text>}
+            </View>
+          )}
+
+          <Input
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            leftIcon={<MaterialIcons name="email" size={24} color="#595959" />}
+            containerStyle={styles.inputContainer}
+            inputStyle={styles.input}
+            errorMessage={emailError}
+            errorStyle={styles.errorText}
+            autoFocus={true}
+            selectionColor="#0068ff"
+            caretHidden={false}
+            placeholderTextColor="#999"
+            cursorColor="#0068ff"
+          />
+
+          <Captcha
+            value={captcha}
+            onChange={setCaptcha}
+            onCaptchaChange={setCaptchaCode}
+          />
+
+          <Button
+            title="Gửi mã xác nhận"
+            onPress={handleForgotPassword}
+            loading={loading}
+            containerStyle={styles.buttonContainer}
+            buttonStyle={styles.button}
+            titleStyle={styles.buttonText}
+          />
+
+          <View style={styles.footer}>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.footerText}>Quay lại đăng nhập</Text>
+            </TouchableOpacity>
           </View>
-        )}
-
-        <Input
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          leftIcon={<MaterialIcons name="email" size={24} color="#595959" />}
-          containerStyle={styles.inputContainer}
-          inputStyle={styles.input}
-          errorMessage={emailError}
-          errorStyle={styles.errorText}
-          autoFocus={true}
-          selectionColor="#0068ff"
-          caretHidden={false}
-          placeholderTextColor="#999"
-          cursorColor="#0068ff"
-        />
-
-        <Captcha
-          value={captcha}
-          onChange={setCaptcha}
-          onCaptchaChange={setCaptchaCode}
-        />
-
-        <Button
-          title="Gửi mã xác nhận"
-          onPress={handleForgotPassword}
-          loading={loading}
-          containerStyle={styles.buttonContainer}
-          buttonStyle={styles.button}
-          titleStyle={styles.buttonText}
-        />
-
-        <View style={styles.footer}>
-          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.footerText}>Quay lại đăng nhập</Text>
-          </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 

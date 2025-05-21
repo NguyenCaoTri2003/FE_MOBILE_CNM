@@ -8,6 +8,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Captcha from '../components/Captcha';
 import { MaterialIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -84,107 +85,109 @@ const LoginScreen = () => {
   };
 
   return (
-    <ImageBackground
-      source={{ uri: 'https://uploads3cnm.s3.us-east-1.amazonaws.com/background.png' }}
-      style={styles.background}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <Text h3 style={styles.title}>Zalo</Text>
-            <Text style={styles.subtitle}>
-              Đăng nhập tài khoản Zalo{'\n'}
-              để kết nối với ứng dụng Zalo Mobile
-            </Text>
-          </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
+      <ImageBackground
+        source={{ uri: 'https://uploads3cnm.s3.us-east-1.amazonaws.com/background.png' }}
+        style={styles.background}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          <View style={styles.container}>
+            <View style={styles.header}>
+              <Text h3 style={styles.title}>Zalo</Text>
+              <Text style={styles.subtitle}>
+                Đăng nhập tài khoản Zalo{'\n'}
+                để kết nối với ứng dụng Zalo Mobile
+              </Text>
+            </View>
 
-          <View style={styles.form}>
-            <Input
-              placeholder="Email hoặc số điện thoại"
-              value={identifier}
-              onChangeText={(text) => {
-                setIdentifier(text);
-                setIdentifierError('');
-              }}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              leftIcon={<MaterialIcons name="person" size={24} color="#595959" />}
-              containerStyle={styles.inputContainer}
-              inputStyle={[styles.input, { color: '#000' }]}
-              errorMessage={identifierError}
-              errorStyle={styles.errorText}
-              autoFocus={true}
-              selectionColor="#0068ff"
-              caretHidden={false}
-              placeholderTextColor="#999"
-              cursorColor="#0068ff"
-            />
-
-            <Input
-              placeholder="Mật khẩu"
-              value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                setPasswordError('');
-              }}
-              secureTextEntry={!showPassword}
-              leftIcon={<MaterialIcons name="lock" size={24} color="#595959" />}
-              rightIcon={
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <MaterialIcons 
-                    name={showPassword ? "visibility" : "visibility-off"} 
-                    size={24} 
-                    color="#595959" 
-                  />
-                </TouchableOpacity>
-              }
-              containerStyle={styles.inputContainer}
-              inputStyle={[styles.input, { color: '#000' }]}
-              errorMessage={passwordError}
-              errorStyle={styles.errorText}
-              selectionColor="#0068ff"
-              caretHidden={false}
-              placeholderTextColor="#999"
-              cursorColor="#0068ff"
-            />
-
-            <Captcha
-              value={captcha}
-              onChange={(text) => {
-                setCaptcha(text);
-                setCaptchaError('');
-              }}
-              onCaptchaChange={(newCaptcha) => setCaptchaCode(newCaptcha)}
-            />
-            {captchaError ? <Text style={styles.errorText}>{captchaError}</Text> : null}
-
-            <Button
-              title="Đăng nhập"
-              onPress={handleLogin}
-              loading={loading}
-              containerStyle={styles.buttonContainer}
-              buttonStyle={styles.button}
-              titleStyle={styles.buttonText}
-            />
-
-            <View style={styles.footer}>
-              <Button
-                title="Quên mật khẩu?"
-                type="clear"
-                onPress={() => navigation.navigate('ForgotPassword')}
-                titleStyle={styles.linkText}
+            <View style={styles.form}>
+              <Input
+                placeholder="Email hoặc số điện thoại"
+                value={identifier}
+                onChangeText={(text) => {
+                  setIdentifier(text);
+                  setIdentifierError('');
+                }}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                leftIcon={<MaterialIcons name="person" size={24} color="#595959" />}
+                containerStyle={styles.inputContainer}
+                inputStyle={[styles.input, { color: '#000' }]}
+                errorMessage={identifierError}
+                errorStyle={styles.errorText}
+                autoFocus={true}
+                selectionColor="#0068ff"
+                caretHidden={false}
+                placeholderTextColor="#999"
+                cursorColor="#0068ff"
               />
-              <Button
-                title="Đăng ký tài khoản mới"
-                type="clear"
-                onPress={() => navigation.navigate('Register')}
-                titleStyle={styles.linkText}
+
+              <Input
+                placeholder="Mật khẩu"
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  setPasswordError('');
+                }}
+                secureTextEntry={!showPassword}
+                leftIcon={<MaterialIcons name="lock" size={24} color="#595959" />}
+                rightIcon={
+                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                    <MaterialIcons 
+                      name={showPassword ? "visibility" : "visibility-off"} 
+                      size={24} 
+                      color="#595959" 
+                    />
+                  </TouchableOpacity>
+                }
+                containerStyle={styles.inputContainer}
+                inputStyle={[styles.input, { color: '#000' }]}
+                errorMessage={passwordError}
+                errorStyle={styles.errorText}
+                selectionColor="#0068ff"
+                caretHidden={false}
+                placeholderTextColor="#999"
+                cursorColor="#0068ff"
               />
+
+              <Captcha
+                value={captcha}
+                onChange={(text) => {
+                  setCaptcha(text);
+                  setCaptchaError('');
+                }}
+                onCaptchaChange={(newCaptcha) => setCaptchaCode(newCaptcha)}
+              />
+              {captchaError ? <Text style={styles.errorText}>{captchaError}</Text> : null}
+
+              <Button
+                title="Đăng nhập"
+                onPress={handleLogin}
+                loading={loading}
+                containerStyle={styles.buttonContainer}
+                buttonStyle={styles.button}
+                titleStyle={styles.buttonText}
+              />
+
+              <View style={styles.footer}>
+                <Button
+                  title="Quên mật khẩu?"
+                  type="clear"
+                  onPress={() => navigation.navigate('ForgotPassword')}
+                  titleStyle={styles.linkText}
+                />
+                <Button
+                  title="Đăng ký tài khoản mới"
+                  type="clear"
+                  onPress={() => navigation.navigate('Register')}
+                  titleStyle={styles.linkText}
+                />
+              </View>
             </View>
           </View>
-        </View>
-      </ScrollView>
-    </ImageBackground>
+        </ScrollView>
+      </ImageBackground>
+    </SafeAreaView>
   );
 };
 

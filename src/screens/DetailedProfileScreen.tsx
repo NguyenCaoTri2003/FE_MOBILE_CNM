@@ -5,24 +5,23 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  SafeAreaView,
   StatusBar,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  ImageBackground,
-  Dimensions,
+  ImageBackground
 } from 'react-native';
 import { Text, Avatar, Button } from '@rneui/themed';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { getProfile, updateProfile, uploadAvatar } from '../services/api';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-import { LinearGradient } from 'expo-linear-gradient';
+import { LinearGradient, LinearGradientProps } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -34,6 +33,10 @@ interface UserProfile {
   phoneNumber: string;
   address: string;
 }
+
+const LinearGradientView: React.FC<LinearGradientProps> = (props) => (
+  <LinearGradient {...props} />
+);
 
 const DetailedProfileScreen = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -344,12 +347,14 @@ const DetailedProfileScreen = () => {
                   {isEditing && (
                     <View style={styles.avatarButtons}>
                       <TouchableOpacity 
+                        key="camera"
                         style={[styles.avatarButton, styles.cameraButton]}
                         onPress={handleTakePhoto}
                       >
                         <Ionicons name="camera" size={20} color="#fff" />
                       </TouchableOpacity>
                       <TouchableOpacity 
+                        key="gallery"
                         style={[styles.avatarButton, styles.galleryButton]}
                         onPress={pickImage}
                       >
@@ -395,18 +400,20 @@ const DetailedProfileScreen = () => {
               {renderField('Địa chỉ', userProfile?.address || '', 'address')}
 
               {isEditing && (
-                <Button
-                  title="Lưu thay đổi"
-                  onPress={handleSave}
-                  buttonStyle={styles.saveButton}
-                  titleStyle={styles.saveButtonText}
-                  ViewComponent={LinearGradient}
-                  linearGradientProps={{
-                    colors: ['#0068ff', '#00a8ff'],
-                    start: { x: 0, y: 0 },
-                    end: { x: 1, y: 0 },
-                  }}
-                />
+                <>
+                  <Button
+                    title="Lưu thay đổi"
+                    onPress={handleSave}
+                    buttonStyle={styles.saveButton}
+                    titleStyle={styles.saveButtonText}
+                    ViewComponent={LinearGradientView as any}
+                    linearGradientProps={{
+                      colors: ['#0068ff', '#00a8ff'],
+                      start: { x: 0, y: 0 },
+                      end: { x: 1, y: 0 },
+                    }}
+                  />
+                </>
               )}
             </View>
           </View>

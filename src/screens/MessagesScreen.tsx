@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
 import { io } from 'socket.io-client';
 import { API_BASE_URL } from '@env';
+import { SafeAreaView as SafeAreaViewRN } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -46,7 +47,7 @@ const MessagesScreen = () => {
   const [hasChanges, setHasChanges] = useState(false);
   const [isFromChat, setIsFromChat] = useState(false);
   const socket = useRef<any>(null);
-  const pollingInterval = useRef<NodeJS.Timeout>();
+  const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const getCurrentUserEmail = async () => {
@@ -628,7 +629,7 @@ const MessagesScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaViewRN style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
       
       {/* Header */}
@@ -654,23 +655,25 @@ const MessagesScreen = () => {
       </View>
 
       {/* Conversations List */}
-      <FlatList
-        data={conversations.filter(conv => 
-          conv.name.toLowerCase().includes(searchQuery.toLowerCase())
-        )}
-        renderItem={renderConversationItem}
-        keyExtractor={item => `${item.type}-${item.id}`}
-        style={styles.list}
-        onRefresh={loadConversations}
-        refreshing={false}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {searchQuery ? 'Không tìm thấy cuộc trò chuyện nào' : 'Chưa có cuộc trò chuyện nào'}
-            </Text>
-          </View>
-        }
-      />
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={conversations.filter(conv => 
+            conv.name.toLowerCase().includes(searchQuery.toLowerCase())
+          )}
+          renderItem={renderConversationItem}
+          keyExtractor={item => `${item.type}-${item.id}`}
+          style={styles.list}
+          onRefresh={loadConversations}
+          refreshing={false}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'Không tìm thấy cuộc trò chuyện nào' : 'Chưa có cuộc trò chuyện nào'}
+              </Text>
+            </View>
+          }
+        />
+      </View>
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
@@ -749,7 +752,7 @@ const MessagesScreen = () => {
           <Text style={[styles.navText, activeTab === 'profile' && styles.activeNavText]}>Cá nhân</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </SafeAreaViewRN>
   );
 };
 

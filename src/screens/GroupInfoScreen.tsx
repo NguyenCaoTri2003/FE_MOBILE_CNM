@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, Text, ScrollView, Alert, Image, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, ScrollView, Alert, Image, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { Avatar } from '@rneui/themed';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -13,6 +13,7 @@ import { API_BASE_URL } from '@env';
 import { jwtDecode } from 'jwt-decode';
 import { removeGroupMember } from '../services/api';
 import { GroupMember } from '../services/api';  // Import type from api
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -496,7 +497,7 @@ const GroupInfoScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Text, Avatar, Tab, TabView } from '@rneui/themed';
 import { getFriendRequests, respondToFriendRequest, withdrawFriendRequest, FriendRequest } from '../services/api';
 import { socketService } from '../services/socket';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const FriendRequestsScreen = () => {
   const navigation = useNavigation();
@@ -165,7 +166,7 @@ const FriendRequestsScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}

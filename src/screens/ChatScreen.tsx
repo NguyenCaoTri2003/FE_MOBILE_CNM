@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, TextInput, StatusBar, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Image, Linking, Modal } from 'react-native';
 import { Text, Avatar } from '@rneui/themed';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import * as ImagePicker from 'expo-image-picker';
 import type { Friend } from '../services/api';
 import * as Clipboard from 'expo-clipboard';
 import { API_BASE_URL } from '@env';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -95,7 +96,7 @@ const ChatScreen = () => {
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const socket = useRef<any>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout>();
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [showEmojis, setShowEmojis] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1351,7 +1352,7 @@ const ChatScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom', 'left', 'right']}>
       <StatusBar backgroundColor="#0068ff" barStyle="light-content" />
       
       {/* Header */}
@@ -1389,173 +1390,175 @@ const ChatScreen = () => {
       </View>
 
       {/* Chat Content */}
-      <KeyboardAvoidingView
-        style={styles.chatContent}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => `${item.messageId}_${item.createdAt}`}
-          style={styles.flatList}
-          contentContainerStyle={styles.messagesList}
-          onScroll={handleUserInteraction}
-          onTouchStart={handleUserInteraction}
-          removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          windowSize={10}
-          initialNumToRender={15}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        />
+      <View style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={styles.chatContent}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        >
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => `${item.messageId}_${item.createdAt}`}
+            style={styles.flatList}
+            contentContainerStyle={styles.messagesList}
+            onScroll={handleUserInteraction}
+            onTouchStart={handleUserInteraction}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            windowSize={10}
+            initialNumToRender={15}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          />
 
-        {/* Emoji Picker */}
-        {showEmojis && (
-          <View style={styles.emojiContainer}>
-            <ScrollView 
-              horizontal={false} 
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.emojiScrollContainer}
-            >
-              <View style={styles.emojiGrid}>
-                {EMOJIS.map((emoji, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.emojiButton}
-                    onPress={() => handleEmojiPress(emoji)}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Hiển thị typing indicator ở đây, trước input bar */}
-        {isTyping && (
-          <View style={[styles.typingContainer, { backgroundColor: '#e6f7ff', borderWidth: 1, borderColor: '#91d5ff' }]}>
-            <Text style={[styles.typingText, { color: '#1890ff' }]}>Đang soạn tin nhắn...</Text>
-          </View>
-        )}
-
-        {/* Bottom Input Bar */}
-        <View style={styles.inputContainer}>
-          <View style={styles.inputWrapper}>
-            <TouchableOpacity 
-              style={styles.inputIcon}
-              onPress={() => setShowEmojis(!showEmojis)}
-            >
-              <Ionicons 
-                name={showEmojis ? "close-outline" : "happy-outline"} 
-                size={24} 
-                color="#666" 
-              />
-            </TouchableOpacity>
-            <TextInput
-              style={styles.input}
-              placeholder="Tin nhắn"
-              placeholderTextColor="#666"
-              value={newMessage}
-              onChangeText={handleMessageChange}
-              multiline
-            />
-            <View style={styles.inputRightIcons}>
-              <TouchableOpacity style={styles.inputIcon}>
-                <Ionicons name="ellipsis-horizontal" size={24} color="#666" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.inputIcon}>
-                <Ionicons name="mic-outline" size={24} color="#666" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.inputIcon}
-                onPress={handleImagePick}
-                disabled={uploading}
+          {/* Emoji Picker */}
+          {showEmojis && (
+            <View style={styles.emojiContainer}>
+              <ScrollView 
+                horizontal={false} 
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.emojiScrollContainer}
               >
-                <Ionicons name="image-outline" size={24} color="#666" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.inputIcon}
-                onPress={handleVideoPick}
-                disabled={uploading}
-              >
-                <Ionicons name="videocam-outline" size={24} color="#666" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.inputIcon}
-                onPress={handleFilePick}
-                disabled={uploading}
-              >
-                <Ionicons name="document-outline" size={24} color="#666" />
-              </TouchableOpacity>
-              {newMessage.trim() && (
-                <TouchableOpacity 
-                  style={styles.sendButton}
-                  onPress={handleSendMessage}
-                >
-                  <Ionicons name="send" size={24} color="#fff" />
-                </TouchableOpacity>
-              )}
+                <View style={styles.emojiGrid}>
+                  {EMOJIS.map((emoji, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.emojiButton}
+                      onPress={() => handleEmojiPress(emoji)}
+                    >
+                      <Text style={styles.emojiText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
             </View>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+          )}
 
-      {renderReactionAndActionModal()}
-
-      {/* Forward Modal */}
-      <Modal
-        visible={showForwardModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowForwardModal(false)}
-      >
-        <View style={styles.forwardModalContainer}>
-          <View style={styles.forwardModalContent}>
-            <View style={styles.forwardModalHeader}>
-              <Text style={styles.forwardModalTitle}>Chuyển tiếp tin nhắn</Text>
-              <TouchableOpacity
-                onPress={() => setShowForwardModal(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
+          {/* Hiển thị typing indicator ở đây, trước input bar */}
+          {isTyping && (
+            <View style={[styles.typingContainer, { backgroundColor: '#e6f7ff', borderWidth: 1, borderColor: '#91d5ff' }]}>
+              <Text style={[styles.typingText, { color: '#1890ff' }]}>Đang soạn tin nhắn...</Text>
             </View>
-            
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+          )}
+
+          {/* Bottom Input Bar */}
+          <View style={styles.inputContainer}>
+            <View style={styles.inputWrapper}>
+              <TouchableOpacity 
+                style={styles.inputIcon}
+                onPress={() => setShowEmojis(!showEmojis)}
+              >
+                <Ionicons 
+                  name={showEmojis ? "close-outline" : "happy-outline"} 
+                  size={24} 
+                  color="#666" 
+                />
+              </TouchableOpacity>
               <TextInput
-                style={styles.searchInput}
-                placeholder="Tìm kiếm bạn bè"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
+                style={styles.input}
+                placeholder="Tin nhắn"
+                placeholderTextColor="#666"
+                value={newMessage}
+                onChangeText={handleMessageChange}
+                multiline
+              />
+              <View style={styles.inputRightIcons}>
+                <TouchableOpacity style={styles.inputIcon}>
+                  <Ionicons name="ellipsis-horizontal" size={24} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.inputIcon}>
+                  <Ionicons name="mic-outline" size={24} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.inputIcon}
+                  onPress={handleImagePick}
+                  disabled={uploading}
+                >
+                  <Ionicons name="image-outline" size={24} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.inputIcon}
+                  onPress={handleVideoPick}
+                  disabled={uploading}
+                >
+                  <Ionicons name="videocam-outline" size={24} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.inputIcon}
+                  onPress={handleFilePick}
+                  disabled={uploading}
+                >
+                  <Ionicons name="document-outline" size={24} color="#666" />
+                </TouchableOpacity>
+                {newMessage.trim() && (
+                  <TouchableOpacity 
+                    style={styles.sendButton}
+                    onPress={handleSendMessage}
+                  >
+                    <Ionicons name="send" size={24} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+
+        {renderReactionAndActionModal()}
+
+        {/* Forward Modal */}
+        <Modal
+          visible={showForwardModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowForwardModal(false)}
+        >
+          <View style={styles.forwardModalContainer}>
+            <View style={styles.forwardModalContent}>
+              <View style={styles.forwardModalHeader}>
+                <Text style={styles.forwardModalTitle}>Chuyển tiếp tin nhắn</Text>
+                <TouchableOpacity
+                  onPress={() => setShowForwardModal(false)}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Tìm kiếm bạn bè"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+              </View>
+
+              <FlatList
+                data={friends.filter(friend => 
+                  friend.fullName.toLowerCase().includes(searchQuery.toLowerCase())
+                )}
+                keyExtractor={(item) => item.email}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.friendItem}
+                    onPress={() => selectedMessageForActions && handleForwardMessage(selectedMessageForActions, item.email)}
+                  >
+                    <Avatar
+                      rounded
+                      source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+                      size={40}
+                    />
+                    <Text style={styles.friendName}>{item.fullName}</Text>
+                  </TouchableOpacity>
+                )}
               />
             </View>
-
-            <FlatList
-              data={friends.filter(friend => 
-                friend.fullName.toLowerCase().includes(searchQuery.toLowerCase())
-              )}
-              keyExtractor={(item) => item.email}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.friendItem}
-                  onPress={() => selectedMessageForActions && handleForwardMessage(selectedMessageForActions, item.email)}
-                >
-                  <Avatar
-                    rounded
-                    source={{ uri: item.avatar || 'https://randomuser.me/api/portraits/men/1.jpg' }}
-                    size={40}
-                  />
-                  <Text style={styles.friendName}>{item.fullName}</Text>
-                </TouchableOpacity>
-              )}
-            />
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      </View>
     </SafeAreaView>
   );
 };
